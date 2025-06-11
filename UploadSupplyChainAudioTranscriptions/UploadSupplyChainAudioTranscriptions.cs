@@ -92,6 +92,7 @@ public class UploadSupplyChainAudioTranscriptions
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
         if (string.IsNullOrWhiteSpace(storageConnectionString))
         {
+            _logger.LogError("connection string is null");
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
 
