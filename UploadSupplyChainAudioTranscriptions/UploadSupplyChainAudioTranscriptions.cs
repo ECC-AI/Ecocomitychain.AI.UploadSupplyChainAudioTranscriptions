@@ -98,11 +98,10 @@ public class UploadSupplyChainAudioTranscriptions
 
         try
         {
-            _logger.LogInformation(storageConnectionString);
 
             var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
             var tableClient = storageAccount.CreateCloudTableClient();
-            var table = tableClient.GetTableReference("SupplyChainAudioTranscriptions");
+            var table = tableClient.GetTableReference("SCAudioTranscriptions");
             await table.CreateIfNotExistsAsync();
 
             var insertOperation = TableOperation.Insert(data);
