@@ -89,7 +89,7 @@ public class UploadSupplyChainAudioTranscriptions
         data.Timestamp = DateTimeOffset.UtcNow;
 
         // Azure Table Storage
-        string? storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
         if (string.IsNullOrWhiteSpace(storageConnectionString))
         {
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
