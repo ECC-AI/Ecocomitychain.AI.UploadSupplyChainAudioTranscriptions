@@ -5,7 +5,7 @@
     },
     "storage1": {
       "type": "storage.emulator",
-      "connectionId": "AzureWebJobsStorage"
+      "connectionId": "scaudiotranscriptions"
     }
   }
 }
