@@ -3,7 +3,7 @@
     "storage1": {
       "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.Storage/storageAccounts/rgscvisibilityproto8f5d",
       "type": "storage.azure",
-      "connectionId": "AzureWebJobsStorage"
+      "connectionId": "scaudiotranscriptions"
     },
     "appInsights1": {
       "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/microsoft.insights/components/UploadSupplyChainAudioTranscriptions",
