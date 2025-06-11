@@ -28,4 +28,5 @@ jobs:
  
       - name: Publish to Azure Function App
         run: |
+          cd UploadSupplyChainAudioTranscriptions
           func azure functionapp publish UploadSupplyChainAudioTranscriptions --dotnet-isolated
