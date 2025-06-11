@@ -2,7 +2,7 @@
   "dependencies": {
     "storage1": {
       "type": "storage",
-      "connectionId": "AzureWebJobsStorage"
+      "connectionId": "scaudiotranscriptions"
     },
     "appInsights1": {
       "type": "appInsights",
