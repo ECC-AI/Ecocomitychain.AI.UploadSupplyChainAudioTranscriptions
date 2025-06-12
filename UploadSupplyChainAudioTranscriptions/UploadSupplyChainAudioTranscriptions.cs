@@ -1,13 +1,10 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
 using System;
-using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using UploadSupplyChainAudioTranscriptions.Entities;
@@ -28,46 +25,15 @@ public class UploadSupplyChainAudioTranscriptions
     {
         _logger.LogInformation("Processing supply chain data upload.");
 
-        if (!req.ContentType?.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase) ?? true)
+        if (!req.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ?? true)
         {
-            return new BadRequestObjectResult("Content-Type must be multipart/form-data.");
-        }
-
-        var boundary = HeaderUtilities.RemoveQuotes(MediaTypeHeaderValue.Parse(req.ContentType).Boundary).Value;
-        if (string.IsNullOrEmpty(boundary))
-        {
-            return new BadRequestObjectResult("Missing content-type boundary.");
-        }
-
-        var reader = new MultipartReader(boundary, req.Body);
-        MultipartSection section;
-        Stream fileStream = null;
-
-        while ((section = await reader.ReadNextSectionAsync()) != null)
-        {
-            var hasContentDispositionHeader =
-                ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var contentDisposition);
-
-            if (hasContentDispositionHeader && contentDisposition.DispositionType.Equals("form-data") &&
-                contentDisposition.Name.Value == "file")
-            {
-                // Save the file stream for further processing
-                fileStream = new MemoryStream();
-                await section.Body.CopyToAsync(fileStream);
-                fileStream.Position = 0;
-                break;
-            }
-        }
-
-        if (fileStream == null)
-        {
-            return new BadRequestObjectResult("No file found in the request.");
+            return new BadRequestObjectResult("Content-Type must be application/json.");
         }
 
         SupplyChainData? data;
         try
         {
-            data = await JsonSerializer.DeserializeAsync<SupplyChainData>(fileStream, new JsonSerializerOptions
+            data = await JsonSerializer.DeserializeAsync<SupplyChainData>(req.Body, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -98,7 +64,6 @@ public class UploadSupplyChainAudioTranscriptions
 
         try
         {
-
             var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
             var tableClient = storageAccount.CreateCloudTableClient();
             var table = tableClient.GetTableReference("SCAudioTranscriptions");
