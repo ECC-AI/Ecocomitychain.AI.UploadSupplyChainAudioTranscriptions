@@ -82,4 +82,44 @@ public class UploadSupplyChainAudioTranscriptions
 
         return new OkObjectResult("Data uploaded successfully.");
     }
+
+    [Function("GetSupplyChainAudioTranscriptions")]
+    public async Task<IActionResult> Get(
+    [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        _logger.LogInformation("Retrieving supply chain audio transcriptions.");
+
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
+            var tableClient = storageAccount.CreateCloudTableClient();
+            var table = tableClient.GetTableReference("SCAudioTranscriptions");
+            await table.CreateIfNotExistsAsync();
+
+            var query = new TableQuery<SupplyChainData>();
+            var results = new List<SupplyChainData>();
+            TableContinuationToken? token = null;
+
+            do
+            {
+                var segment = await table.ExecuteQuerySegmentedAsync(query, token);
+                results.AddRange(segment.Results);
+                token = segment.ContinuationToken;
+            } while (token != null);
+
+            return new OkObjectResult(results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading from Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
 }
