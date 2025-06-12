@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 using UploadSupplyChainAudioTranscriptions.Entities;
@@ -30,10 +31,10 @@ public class UploadSupplyChainAudioTranscriptions
             return new BadRequestObjectResult("Content-Type must be application/json.");
         }
 
-        SupplyChainData? data;
+        List<SupplyChainData>? dataList;
         try
         {
-            data = await JsonSerializer.DeserializeAsync<SupplyChainData>(req.Body, new JsonSerializerOptions
+            dataList = await JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -44,17 +45,11 @@ public class UploadSupplyChainAudioTranscriptions
             return new BadRequestObjectResult("Invalid JSON format.");
         }
 
-        if (data == null)
+        if (dataList == null || dataList.Count == 0)
         {
-            return new BadRequestObjectResult("No data found in JSON.");
+            return new BadRequestObjectResult("At least one JSON payload is required.");
         }
 
-        // Set PartitionKey and RowKey
-        data.PartitionKey = data.SupplierID;
-        data.RowKey = Guid.NewGuid().ToString();
-        data.Timestamp = DateTimeOffset.UtcNow;
-
-        // Azure Table Storage
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
         if (string.IsNullOrWhiteSpace(storageConnectionString))
         {
@@ -69,8 +64,15 @@ public class UploadSupplyChainAudioTranscriptions
             var table = tableClient.GetTableReference("SCAudioTranscriptions");
             await table.CreateIfNotExistsAsync();
 
-            var insertOperation = TableOperation.Insert(data);
-            await table.ExecuteAsync(insertOperation);
+            foreach (var data in dataList)
+            {
+                data.PartitionKey = data.SupplierID;
+                data.RowKey = Guid.NewGuid().ToString();
+                data.Timestamp = DateTimeOffset.UtcNow;
+
+                var insertOperation = TableOperation.Insert(data);
+                await table.ExecuteAsync(insertOperation);
+            }
         }
         catch (Exception ex)
         {
