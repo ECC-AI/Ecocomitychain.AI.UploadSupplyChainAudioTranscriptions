@@ -211,4 +211,53 @@ public class UploadSupplyChainAudioTranscriptions
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
     }
+
+    [Function("GetSupplyChainAudioTranscriptionsBySupplierId")]
+    public async Task<IActionResult> GetBySupplierId(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}")] HttpRequest req,
+    string supplierId)
+    {
+        _logger.LogInformation($"Retrieving supply chain audio transcriptions for SupplierID: {supplierId}");
+
+        if (string.IsNullOrWhiteSpace(supplierId))
+        {
+            return new BadRequestObjectResult("SupplierID is required.");
+        }
+
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
+            var tableClient = storageAccount.CreateCloudTableClient();
+            var table = tableClient.GetTableReference("SCAudioTranscriptions");
+            await table.CreateIfNotExistsAsync();
+
+            var query = new TableQuery<SupplyChainData>().Where(
+                TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, supplierId)
+            );
+
+            var results = new List<SupplyChainData>();
+            TableContinuationToken? token = null;
+
+            do
+            {
+                var segment = await table.ExecuteQuerySegmentedAsync(query, token);
+                results.AddRange(segment.Results);
+                token = segment.ContinuationToken;
+            } while (token != null);
+
+            return new OkObjectResult(results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading from Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
 }
