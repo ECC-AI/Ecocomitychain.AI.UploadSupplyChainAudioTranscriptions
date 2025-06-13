@@ -16,9 +16,9 @@ public sealed class SupplyChainDataMap : ClassMap<SupplyChainData>
         Map(m => m.QtyProcured);
         Map(m => m.QtyProduced);
         Map(m => m.QtyRemaining);
-        Map(m => m.Voice_EN);
-        Map(m => m.Voice_HI);
-        Map(m => m.Voice_Hinglish);
+        //Map(m => m.Voice_EN);
+        //Map(m => m.Voice_HI);
+        //Map(m => m.Voice_Hinglish);
         Map(m => m.RippleEffect);
     }
 }

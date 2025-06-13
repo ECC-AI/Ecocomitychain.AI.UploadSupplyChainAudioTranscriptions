@@ -22,9 +22,9 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         public double? QtyProduced { get; set; }
         public double? QtyRemaining { get; set; }
 
-        public string Voice_EN { get; set; }
-        public string Voice_HI { get; set; }
-        public string Voice_Hinglish { get; set; }
+        //public string Voice_EN { get; set; }
+        //public string Voice_HI { get; set; }
+        //public string Voice_Hinglish { get; set; }
         public string RippleEffect { get; set; }
     }
 
