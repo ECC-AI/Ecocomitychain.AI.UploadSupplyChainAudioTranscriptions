@@ -16,11 +16,11 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         public string Material { get; set; }
         public string Status { get; set; }
 
-        public int? QtyPlanned { get; set; }
-        public int? QtyFromInventory { get; set; }
-        public int? QtyProcured { get; set; }
-        public int? QtyProduced { get; set; }
-        public int? QtyRemaining { get; set; }
+        public double? QtyPlanned { get; set; }
+        public double? QtyFromInventory { get; set; }
+        public double? QtyProcured { get; set; }
+        public double? QtyProduced { get; set; }
+        public double? QtyRemaining { get; set; }
 
         public string Voice_EN { get; set; }
         public string Voice_HI { get; set; }
