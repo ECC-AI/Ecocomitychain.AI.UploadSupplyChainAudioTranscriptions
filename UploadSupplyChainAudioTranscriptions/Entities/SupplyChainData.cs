@@ -26,6 +26,8 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         //public string Voice_HI { get; set; }
         //public string Voice_Hinglish { get; set; }
         public string RippleEffect { get; set; }
+        public DateTimeOffset? ReportedTime { get; set; }
+
     }
 
 }

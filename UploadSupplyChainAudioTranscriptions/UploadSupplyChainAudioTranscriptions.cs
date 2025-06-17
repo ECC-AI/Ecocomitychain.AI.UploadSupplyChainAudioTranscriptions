@@ -14,6 +14,7 @@ using UploadSupplyChainAudioTranscriptions.Entities;
 using ClosedXML.Excel;
 using CsvHelper;
 using System.Globalization;
+using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
 
 namespace UploadSupplyChainAudioTranscriptions;
 
@@ -88,9 +89,10 @@ public class UploadSupplyChainAudioTranscriptions
         return new OkObjectResult("Data uploaded successfully.");
     }
 
+    
     [Function("GetSupplyChainAudioTranscriptions")]
     public async Task<IActionResult> Get(
-    [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
     {
         _logger.LogInformation("Retrieving supply chain audio transcriptions.");
 
@@ -109,13 +111,38 @@ public class UploadSupplyChainAudioTranscriptions
             await table.CreateIfNotExistsAsync();
 
             var query = new TableQuery<SupplyChainData>();
-            var results = new List<SupplyChainData>();
+            var results = new List<SupplyChainDataViewModel>();
             TableContinuationToken? token = null;
 
             do
             {
                 var segment = await table.ExecuteQuerySegmentedAsync(query, token);
-                results.AddRange(segment.Results);
+                foreach (var item in segment.Results)
+                {
+                    results.Add(new SupplyChainDataViewModel
+                    {
+                        Tier = item.Tier,
+                        SupplierID = item.SupplierID,
+                        Stage = item.Stage,
+                        Material = item.Material,
+                        Status = item.Status,
+                        BarColor = item.Status?.ToLowerInvariant() switch
+                        {
+                            "completed" => "Green",
+                            "in progress" => "Yellow",
+                            "delayed" => "Red",
+                            "not started" => "Gray",
+                            _ => "Blue"
+                        },
+                        QuantityPlanned = item.QtyPlanned.HasValue ? item.QtyPlanned : null,
+                        QuantityFromInventory = item.QtyFromInventory.HasValue ? item.QtyFromInventory : null,
+                        QuantityProcured = item.QtyProcured.HasValue ? item.QtyProcured : null,
+                        QuantityProduced = item.QtyProduced.HasValue ? item.QtyProduced : null,
+                        QuantityRemaining = item.QtyRemaining.HasValue ? item.QtyRemaining : null,
+                        RippleEffect = item.RippleEffect,
+                        Timestamp = item.ReportedTime
+                    });
+                }
                 token = segment.ContinuationToken;
             } while (token != null);
 
@@ -191,7 +218,7 @@ public class UploadSupplyChainAudioTranscriptions
                         {
                             data.PartitionKey = data.SupplierID;
                             data.RowKey = Guid.NewGuid().ToString();
-                            data.Timestamp = DateTimeOffset.UtcNow;
+                            data.ReportedTime = data.Timestamp;
 
                             var insertOperation = TableOperation.Insert(data);
                             await table.ExecuteAsync(insertOperation);
@@ -212,6 +239,7 @@ public class UploadSupplyChainAudioTranscriptions
         }
     }
 
+    
     [Function("GetSupplyChainAudioTranscriptionsBySupplierId")]
     public async Task<IActionResult> GetBySupplierId(
     [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}")] HttpRequest req,
