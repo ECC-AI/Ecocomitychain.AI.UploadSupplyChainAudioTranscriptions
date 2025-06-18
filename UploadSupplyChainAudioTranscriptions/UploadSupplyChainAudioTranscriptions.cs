@@ -15,6 +15,7 @@ using ClosedXML.Excel;
 using CsvHelper;
 using System.Globalization;
 using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
+using Neo4j.Driver;
 
 namespace UploadSupplyChainAudioTranscriptions;
 
@@ -287,5 +288,163 @@ public class UploadSupplyChainAudioTranscriptions
             _logger.LogError(ex, "Error reading from Azure Table Storage.");
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
+    }
+
+    [Function("QueryRawMaterialGraph")]
+    public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
+    string rawMaterialName)
+    {
+        if (string.IsNullOrWhiteSpace(rawMaterialName))
+        {
+            return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
+        }
+
+        var uri = "neo4j+s://7c2f46c2.databases.neo4j.io";
+        var user = "neo4j";
+        var password = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
+
+        var cypherQuery = $@"
+            MATCH (COMPONENTRAWMATERIAL:ComponentRawMaterial {{Name: '{rawMaterialName}'}})<- [r1:COMP_MADEOF_RAWMAT]-(COMPONENT:Component)
+                  <- [r2:HAS_COMPONENT]- (BOMSUBITEM:BomSubItem)
+                  <- [r3:HAS_SUBASSEMBLY]-(BOMITEM:BomItem)
+                  <- [r4:HAS_ASSEMBLY]-(MATERIALBOM:MaterialBOM)
+            RETURN COMPONENTRAWMATERIAL, COMPONENT, BOMSUBITEM, BOMITEM, MATERIALBOM, r1, r2, r3, r4
+        ";
+
+        try
+        {
+            var driver = GraphDatabase.Driver(uri, AuthTokens.Basic(user, password));
+            var session = driver.AsyncSession();
+            var result = await session.RunAsync(cypherQuery);
+            var records = await result.ToListAsync();
+
+            var resultsList = new List<object>();
+            foreach (var record in records)
+            {
+                resultsList.Add(new
+                {
+                    crm = record["COMPONENTRAWMATERIAL"].As<INode>().Properties,
+                    c = record["COMPONENT"].As<INode>().Properties,
+                    bsi = record["BOMSUBITEM"].As<INode>().Properties,
+                    bi = record["BOMITEM"].As<INode>().Properties,
+                    mb = record["MATERIALBOM"].As<INode>().Properties,
+                    r1 = record["r1"].As<IRelationship>().Properties,
+                    r2 = record["r2"].As<IRelationship>().Properties,
+                    r3 = record["r3"].As<IRelationship>().Properties,
+                    r4 = record["r4"].As<IRelationship>().Properties
+                });
+            }
+
+            await session.CloseAsync();
+
+            var tangledTreeData = BuildHierarchicalJson(resultsList);
+
+            return new OkObjectResult(JsonSerializer.Serialize(tangledTreeData));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying Neo4j");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+    private object BuildHierarchicalJson(List<object> resultsList)
+    {
+        // Helper to extract a name from a node dictionary
+        string GetName(IDictionary<string, object> node, string fallback = "Unknown")
+        {
+            if (node == null) return fallback;
+            if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
+                return nameStr;
+            if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
+                return nameStr2;
+            return fallback;
+        }
+
+        // Build a tree from the flat list
+        var materialDict = new Dictionary<string, dynamic>();
+        foreach (dynamic record in resultsList)
+        {
+            var crm = record.crm as IDictionary<string, object>;
+            var c = record.c as IDictionary<string, object>;
+            var bsi = record.bsi as IDictionary<string, object>;
+            var bi = record.bi as IDictionary<string, object>;
+            var mb = record.mb as IDictionary<string, object>;
+
+            string crmName = GetName(crm, "ComponentRawMaterial");
+            string cName = GetName(c, "Component");
+            string bsiName = GetName(bsi, "BomSubItem");
+            string biName = GetName(bi, "BomItem");
+            string mbName = GetName(mb, "MaterialBOM");
+
+            // MaterialBOM (root)
+            if (!materialDict.TryGetValue(mbName, out dynamic mbNode))
+            {
+                mbNode = new Dictionary<string, object>
+                {
+                    ["name"] = mbName,
+                    ["children"] = new List<object>()
+                };
+                materialDict[mbName] = mbNode;
+            }
+
+            // BomItem
+            var mbChildren = (List<object>)mbNode["children"];
+            var biNode = mbChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(biName)) as IDictionary<string, object>;
+            if (biNode == null)
+            {
+                biNode = new Dictionary<string, object>
+                {
+                    ["name"] = biName,
+                    ["children"] = new List<object>()
+                };
+                mbChildren.Add(biNode);
+            }
+
+            // BomSubItem
+            var biChildren = (List<object>)biNode["children"];
+            var bsiNode = biChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(bsiName)) as IDictionary<string, object>;
+            if (bsiNode == null)
+            {
+                bsiNode = new Dictionary<string, object>
+                {
+                    ["name"] = bsiName,
+                    ["children"] = new List<object>()
+                };
+                biChildren.Add(bsiNode);
+            }
+
+            // Component
+            var bsiChildren = (List<object>)bsiNode["children"];
+            var cNode = bsiChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(cName)) as IDictionary<string, object>;
+            if (cNode == null)
+            {
+                cNode = new Dictionary<string, object>
+                {
+                    ["name"] = cName,
+                    ["children"] = new List<object>()
+                };
+                bsiChildren.Add(cNode);
+            }
+
+            // ComponentRawMaterial
+            var cChildren = (List<object>)cNode["children"];
+            if (!cChildren.Exists(x => ((IDictionary<string, object>)x)["name"].Equals(crmName)))
+            {
+                cChildren.Add(new Dictionary<string, object>
+                {
+                    ["name"] = crmName
+                });
+            }
+        }
+
+        // If only one root, return it, else wrap in a dummy root
+        if (materialDict.Count == 1)
+            return materialDict.Values.First();
+        return new Dictionary<string, object>
+        {
+            ["name"] = "Root",
+            ["children"] = materialDict.Values.ToList()
+        };
     }
 }
