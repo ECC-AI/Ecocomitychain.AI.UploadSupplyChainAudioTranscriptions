@@ -377,6 +377,76 @@ public class UploadSupplyChainAudioTranscriptions
             var c = record.c as IDictionary<string, object>;
             var bsi = record.bsi as IDictionary<string, object>;
             var bi = record.bi as IDictionary<string, object>;
+
+            string rawMatName = GetName(crm, "ComponentRawMaterial");
+            string componentName = GetName(c, "Component");
+            string subassemblyId = GetName(bsi, "BomSubItem");
+            string assemblyName = GetName(bi, "BomItem");
+
+            // Lowest level: raw material node
+            var rawMatNode = new Dictionary<string, object>
+            {
+                ["relation"] = "COMP_MADEOF_RAWMAT",
+                ["name"] = rawMatName
+            };
+
+            // Component node with raw material as child
+            var componentNode = new Dictionary<string, object>
+            {
+                ["relation"] = "HAS_COMPONENT",
+                ["name"] = componentName,
+                ["children"] = new List<Dictionary<string, object>> { rawMatNode }
+            };
+
+            // Subassembly node with component as child
+            var subassemblyNode = new Dictionary<string, object>
+            {
+                ["relation"] = "HAS_SUBASSEMBLY",
+                ["name"] = subassemblyId,
+                ["children"] = new List<Dictionary<string, object>> { componentNode }
+            };
+
+            // Assembly node with subassembly as child
+            var assemblyNode = new Dictionary<string, object>
+            {
+                ["relation"] = "HAS_ASSEMBLY",
+                ["name"] = assemblyName,
+                ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
+            };
+
+            // Add to plant without merging assembly nodes (preserve separate paths)
+            children.Add(assemblyNode);
+        }
+
+        return plant;
+    }
+
+    private object BuildHierarchicalJson1(List<object> resultsList)
+    {
+        string GetName(IDictionary<string, object> node, string fallback = "Unknown")
+        {
+            if (node == null) return fallback;
+            if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
+                return nameStr;
+            if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
+                return nameStr2;
+            return fallback;
+        }
+
+        var plant = new Dictionary<string, object>
+        {
+            ["name"] = "Hyundai Chennai",
+            ["children"] = new List<Dictionary<string, object>>()
+        };
+
+        var children = (List<Dictionary<string, object>>)plant["children"];
+
+        foreach (dynamic record in resultsList)
+        {
+            var crm = record.crm as IDictionary<string, object>;
+            var c = record.c as IDictionary<string, object>;
+            var bsi = record.bsi as IDictionary<string, object>;
+            var bi = record.bi as IDictionary<string, object>;
             var mb = record.mb as IDictionary<string, object>;
 
 
