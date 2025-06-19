@@ -292,201 +292,264 @@ public class UploadSupplyChainAudioTranscriptions
         }
     }
 
+    //[Function("QueryRawMaterialGraph")]
+    //public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
+    //[HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
+    //string rawMaterialName)
+    //{
+    //    if (string.IsNullOrWhiteSpace(rawMaterialName))
+    //    {
+    //        return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
+    //    }
+
+    //    var uri = "neo4j+s://7c2f46c2.databases.neo4j.io";
+    //    var user = "neo4j";
+    //    var password = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
+
+    //    var cypherQuery = $@"
+    //        MATCH (COMPONENTRAWMATERIAL:ComponentRawMaterial {{Name: '{rawMaterialName}'}})<- [r1:COMP_MADEOF_RAWMAT]-(COMPONENT:Component)
+    //              <- [r2:HAS_COMPONENT]- (BOMSUBITEM:BomSubItem)
+    //              <- [r3:HAS_SUBASSEMBLY]-(BOMITEM:BomItem)
+    //              <- [r4:HAS_ASSEMBLY]-(MATERIALBOM:MaterialBOM)
+    //        RETURN COMPONENTRAWMATERIAL, COMPONENT, BOMSUBITEM, BOMITEM, MATERIALBOM, r1, r2, r3, r4
+    //    ";
+
+    //    try
+    //    {
+    //        var driver = GraphDatabase.Driver(uri, AuthTokens.Basic(user, password));
+    //        var session = driver.AsyncSession();
+    //        var result = await session.RunAsync(cypherQuery);
+    //        var records = await result.ToListAsync();
+
+    //        var resultsList = new List<object>();
+    //        foreach (var record in records)
+    //        {
+    //            resultsList.Add(new
+    //            {
+    //                crm = record["COMPONENTRAWMATERIAL"].As<INode>().Properties,
+    //                c = record["COMPONENT"].As<INode>().Properties,
+    //                bsi = record["BOMSUBITEM"].As<INode>().Properties,
+    //                bi = record["BOMITEM"].As<INode>().Properties,
+    //                mb = record["MATERIALBOM"].As<INode>().Properties,
+    //                r1 = record["r1"].As<IRelationship>().Properties,
+    //                r2 = record["r2"].As<IRelationship>().Properties,
+    //                r3 = record["r3"].As<IRelationship>().Properties,
+    //                r4 = record["r4"].As<IRelationship>().Properties
+    //            });
+    //        }
+
+    //        await session.CloseAsync();
+
+    //        var tangledTreeData = BuildHierarchicalJson(resultsList);
+
+    //        return new OkObjectResult(JsonSerializer.Serialize(tangledTreeData));
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error querying Neo4j");
+    //        return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+    //    }
+    //}
+
+    //private object BuildHierarchicalJson(List<object> resultsList)
+    //{
+    //    string GetName(IDictionary<string, object> node, string fallback = "Unknown")
+    //    {
+    //        if (node == null) return fallback;
+    //        if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
+    //            return nameStr;
+    //        if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
+    //            return nameStr2;
+    //        return fallback;
+    //    }
+
+    //    var plant = new Dictionary<string, object>
+    //    {
+    //        ["name"] = "Hyundai Chennai",
+    //        ["children"] = new List<Dictionary<string, object>>()
+    //    };
+
+    //    var children = (List<Dictionary<string, object>>)plant["children"];
+
+    //    foreach (dynamic record in resultsList)
+    //    {
+    //        var crm = record.crm as IDictionary<string, object>;
+    //        var c = record.c as IDictionary<string, object>;
+    //        var bsi = record.bsi as IDictionary<string, object>;
+    //        var bi = record.bi as IDictionary<string, object>;
+
+    //        string rawMatName = GetName(crm, "ComponentRawMaterial");
+    //        string componentName = GetName(c, "Component");
+    //        string subassemblyId = GetName(bsi, "BomSubItem");
+    //        string assemblyName = GetName(bi, "BomItem");
+
+    //        // Lowest level: raw material node
+    //        var rawMatNode = new Dictionary<string, object>
+    //        {
+    //            ["relation"] = "COMP_MADEOF_RAWMAT",
+    //            ["name"] = rawMatName
+    //        };
+
+    //        // Component node with raw material as child
+    //        var componentNode = new Dictionary<string, object>
+    //        {
+    //            ["relation"] = "HAS_COMPONENT",
+    //            ["name"] = componentName,
+    //            ["children"] = new List<Dictionary<string, object>> { rawMatNode }
+    //        };
+
+    //        // Subassembly node with component as child
+    //        var subassemblyNode = new Dictionary<string, object>
+    //        {
+    //            ["relation"] = "HAS_SUBASSEMBLY",
+    //            ["name"] = subassemblyId,
+    //            ["children"] = new List<Dictionary<string, object>> { componentNode }
+    //        };
+
+    //        // Assembly node with subassembly as child
+    //        var assemblyNode = new Dictionary<string, object>
+    //        {
+    //            ["relation"] = "HAS_ASSEMBLY",
+    //            ["name"] = assemblyName,
+    //            ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
+    //        };
+
+    //        // Add to plant without merging assembly nodes (preserve separate paths)
+    //        children.Add(assemblyNode);
+    //    }
+
+    //    return plant;
+    //}
+
     [Function("QueryRawMaterialGraph")]
     public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
-    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
-    string rawMaterialName)
+[HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
+string rawMaterialName)
     {
         if (string.IsNullOrWhiteSpace(rawMaterialName))
         {
             return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
         }
 
-        var uri = "neo4j+s://7c2f46c2.databases.neo4j.io";
-        var user = "neo4j";
-        var password = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
-
-        var cypherQuery = $@"
-            MATCH (COMPONENTRAWMATERIAL:ComponentRawMaterial {{Name: '{rawMaterialName}'}})<- [r1:COMP_MADEOF_RAWMAT]-(COMPONENT:Component)
-                  <- [r2:HAS_COMPONENT]- (BOMSUBITEM:BomSubItem)
-                  <- [r3:HAS_SUBASSEMBLY]-(BOMITEM:BomItem)
-                  <- [r4:HAS_ASSEMBLY]-(MATERIALBOM:MaterialBOM)
-            RETURN COMPONENTRAWMATERIAL, COMPONENT, BOMSUBITEM, BOMITEM, MATERIALBOM, r1, r2, r3, r4
-        ";
-
-        try
+        string result = @"
+{
+    ""name"": ""Hyundai Verna 2025"",
+    ""children"": [
         {
-            var driver = GraphDatabase.Driver(uri, AuthTokens.Basic(user, password));
-            var session = driver.AsyncSession();
-            var result = await session.RunAsync(cypherQuery);
-            var records = await result.ToListAsync();
-
-            var resultsList = new List<object>();
-            foreach (var record in records)
-            {
-                resultsList.Add(new
+            ""name"": ""CHSUSP-HVERNA-01"",
+            ""children"": [
                 {
-                    crm = record["COMPONENTRAWMATERIAL"].As<INode>().Properties,
-                    c = record["COMPONENT"].As<INode>().Properties,
-                    bsi = record["BOMSUBITEM"].As<INode>().Properties,
-                    bi = record["BOMITEM"].As<INode>().Properties,
-                    mb = record["MATERIALBOM"].As<INode>().Properties,
-                    r1 = record["r1"].As<IRelationship>().Properties,
-                    r2 = record["r2"].As<IRelationship>().Properties,
-                    r3 = record["r3"].As<IRelationship>().Properties,
-                    r4 = record["r4"].As<IRelationship>().Properties
-                });
-            }
-
-            await session.CloseAsync();
-
-            var tangledTreeData = BuildHierarchicalJson(resultsList);
-
-            return new OkObjectResult(JsonSerializer.Serialize(tangledTreeData));
+                    ""name"": ""SUBITE-M-1718"",
+                    ""children"": [
+                        {
+                            ""name"": ""Electronic Power"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            ""name"": ""INTELECT-HVERNA-01"",
+            ""children"": [
+                {
+                    ""name"": ""SUBITE-M-5410"",
+                    ""children"": [
+                        {
+                            ""name"": ""Speakers"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            ""name"": ""INTERIOR-HVERNA-0"",
+            ""children"": [
+                {
+                    ""name"": ""AIRBLOWER-HVERNA-01"",
+                    ""children"": [
+                        {
+                            ""name"": ""Air Blower Motor"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    ""name"": ""DASHBOARDCONSOLE-CENTERCONSOLE-004"",
+                    ""children"": [
+                        {
+                            ""name"": ""Center Console"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            ""name"": ""CHASSIS_&_SUSPENSION-HV-01"",
+            ""children"": [
+                {
+                    ""name"": ""SUSPENSION-HV-011"",
+                    ""children"": [
+                        {
+                            ""name"": ""Subd_fan_motor"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        },
+                        {
+                            ""name"": ""subd_fan_motor001"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        },
+                        {
+                            ""name"": ""subd_fan_motor002"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        },
+                        {
+                            ""name"": ""subd_fan_motor003"",
+                            ""children"": [
+                                {
+                                    ""name"": ""Neodymium""
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error querying Neo4j");
-            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-        }
-    }
+    ]
+}
+";
 
-    private object BuildHierarchicalJson(List<object> resultsList)
-    {
-        string GetName(IDictionary<string, object> node, string fallback = "Unknown")
-        {
-            if (node == null) return fallback;
-            if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
-                return nameStr;
-            if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
-                return nameStr2;
-            return fallback;
-        }
-
-        var plant = new Dictionary<string, object>
-        {
-            ["name"] = "Hyundai Chennai",
-            ["children"] = new List<Dictionary<string, object>>()
-        };
-
-        var children = (List<Dictionary<string, object>>)plant["children"];
-
-        foreach (dynamic record in resultsList)
-        {
-            var crm = record.crm as IDictionary<string, object>;
-            var c = record.c as IDictionary<string, object>;
-            var bsi = record.bsi as IDictionary<string, object>;
-            var bi = record.bi as IDictionary<string, object>;
-
-            string rawMatName = GetName(crm, "ComponentRawMaterial");
-            string componentName = GetName(c, "Component");
-            string subassemblyId = GetName(bsi, "BomSubItem");
-            string assemblyName = GetName(bi, "BomItem");
-
-            // Lowest level: raw material node
-            var rawMatNode = new Dictionary<string, object>
-            {
-                ["relation"] = "COMP_MADEOF_RAWMAT",
-                ["name"] = rawMatName
-            };
-
-            // Component node with raw material as child
-            var componentNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_COMPONENT",
-                ["name"] = componentName,
-                ["children"] = new List<Dictionary<string, object>> { rawMatNode }
-            };
-
-            // Subassembly node with component as child
-            var subassemblyNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_SUBASSEMBLY",
-                ["name"] = subassemblyId,
-                ["children"] = new List<Dictionary<string, object>> { componentNode }
-            };
-
-            // Assembly node with subassembly as child
-            var assemblyNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_ASSEMBLY",
-                ["name"] = assemblyName,
-                ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
-            };
-
-            // Add to plant without merging assembly nodes (preserve separate paths)
-            children.Add(assemblyNode);
-        }
-
-        return plant;
-    }
-
-    private object BuildHierarchicalJson1(List<object> resultsList)
-    {
-        string GetName(IDictionary<string, object> node, string fallback = "Unknown")
-        {
-            if (node == null) return fallback;
-            if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
-                return nameStr;
-            if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
-                return nameStr2;
-            return fallback;
-        }
-
-        var plant = new Dictionary<string, object>
-        {
-            ["name"] = "Hyundai Chennai",
-            ["children"] = new List<Dictionary<string, object>>()
-        };
-
-        var children = (List<Dictionary<string, object>>)plant["children"];
-
-        foreach (dynamic record in resultsList)
-        {
-            var crm = record.crm as IDictionary<string, object>;
-            var c = record.c as IDictionary<string, object>;
-            var bsi = record.bsi as IDictionary<string, object>;
-            var bi = record.bi as IDictionary<string, object>;
-            var mb = record.mb as IDictionary<string, object>;
-
-
-            string rawMatName = GetName(crm, "ComponentRawMaterial");
-            string componentName = GetName(c, "Component");
-            string subassemblyId = GetName(bsi, "BomSubItem");
-            string assemblyName = GetName(bi, "BomItem");
-            string mbName = GetName(mb, "MaterialBOM");
-
-            var rawMatNode = new Dictionary<string, object>
-            {
-                ["relation"] = "COMP_MADEOF_RAWMAT",
-                ["name"] = rawMatName
-            };
-
-            var componentNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_COMPONENT",
-                ["name"] = componentName,
-                ["children"] = new List<Dictionary<string, object>> { rawMatNode }
-            };
-
-            var subassemblyNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_SUBASSEMBLY",
-                ["name"] = subassemblyId,
-                ["children"] = new List<Dictionary<string, object>> { componentNode }
-            };
-
-            var assemblyNode = new Dictionary<string, object>
-            {
-                ["relation"] = "HAS_ASSEMBLY",
-                ["name"] = assemblyName,
-                ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
-            };
-
-            children.Add(assemblyNode);
-        }
-
-        return plant;
+            return new OkObjectResult(result);
+       
     }
 
 }
