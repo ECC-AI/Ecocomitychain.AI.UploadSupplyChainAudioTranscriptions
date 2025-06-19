@@ -1,21 +1,23 @@
+﻿using ClosedXML.Excel;
+using CsvHelper;
+using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities;
+using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Table;
 using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.WindowsAzure.Storage.Table;
+using Neo4j.Driver;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.IO;
 using UploadSupplyChainAudioTranscriptions.Entities;
-using ClosedXML.Excel;
-using CsvHelper;
-using System.Globalization;
-using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
-using Neo4j.Driver;
 
 namespace UploadSupplyChainAudioTranscriptions;
 
@@ -348,9 +350,9 @@ public class UploadSupplyChainAudioTranscriptions
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
     }
+
     private object BuildHierarchicalJson(List<object> resultsList)
     {
-        // Helper to extract a name from a node dictionary
         string GetName(IDictionary<string, object> node, string fallback = "Unknown")
         {
             if (node == null) return fallback;
@@ -361,8 +363,14 @@ public class UploadSupplyChainAudioTranscriptions
             return fallback;
         }
 
-        // Build a tree from the flat list
-        var materialDict = new Dictionary<string, dynamic>();
+        var plant = new Dictionary<string, object>
+        {
+            ["name"] = "Hyundai Chennai",
+            ["children"] = new List<Dictionary<string, object>>()
+        };
+
+        var children = (List<Dictionary<string, object>>)plant["children"];
+
         foreach (dynamic record in resultsList)
         {
             var crm = record.crm as IDictionary<string, object>;
@@ -371,80 +379,44 @@ public class UploadSupplyChainAudioTranscriptions
             var bi = record.bi as IDictionary<string, object>;
             var mb = record.mb as IDictionary<string, object>;
 
-            string crmName = GetName(crm, "ComponentRawMaterial");
-            string cName = GetName(c, "Component");
-            string bsiName = GetName(bsi, "BomSubItem");
-            string biName = GetName(bi, "BomItem");
+
+            string rawMatName = GetName(crm, "ComponentRawMaterial");
+            string componentName = GetName(c, "Component");
+            string subassemblyId = GetName(bsi, "BomSubItem");
+            string assemblyName = GetName(bi, "BomItem");
             string mbName = GetName(mb, "MaterialBOM");
 
-            // MaterialBOM (root)
-            if (!materialDict.TryGetValue(mbName, out dynamic mbNode))
+            var rawMatNode = new Dictionary<string, object>
             {
-                mbNode = new Dictionary<string, object>
-                {
-                    ["name"] = mbName,
-                    ["children"] = new List<object>()
-                };
-                materialDict[mbName] = mbNode;
-            }
+                ["relation"] = "COMP_MADEOF_RAWMAT",
+                ["name"] = rawMatName
+            };
 
-            // BomItem
-            var mbChildren = (List<object>)mbNode["children"];
-            var biNode = mbChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(biName)) as IDictionary<string, object>;
-            if (biNode == null)
+            var componentNode = new Dictionary<string, object>
             {
-                biNode = new Dictionary<string, object>
-                {
-                    ["name"] = biName,
-                    ["children"] = new List<object>()
-                };
-                mbChildren.Add(biNode);
-            }
+                ["relation"] = "HAS_COMPONENT",
+                ["name"] = componentName,
+                ["children"] = new List<Dictionary<string, object>> { rawMatNode }
+            };
 
-            // BomSubItem
-            var biChildren = (List<object>)biNode["children"];
-            var bsiNode = biChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(bsiName)) as IDictionary<string, object>;
-            if (bsiNode == null)
+            var subassemblyNode = new Dictionary<string, object>
             {
-                bsiNode = new Dictionary<string, object>
-                {
-                    ["name"] = bsiName,
-                    ["children"] = new List<object>()
-                };
-                biChildren.Add(bsiNode);
-            }
+                ["relation"] = "HAS_SUBASSEMBLY",
+                ["name"] = subassemblyId,
+                ["children"] = new List<Dictionary<string, object>> { componentNode }
+            };
 
-            // Component
-            var bsiChildren = (List<object>)bsiNode["children"];
-            var cNode = bsiChildren.Find(x => ((IDictionary<string, object>)x)["name"].Equals(cName)) as IDictionary<string, object>;
-            if (cNode == null)
+            var assemblyNode = new Dictionary<string, object>
             {
-                cNode = new Dictionary<string, object>
-                {
-                    ["name"] = cName,
-                    ["children"] = new List<object>()
-                };
-                bsiChildren.Add(cNode);
-            }
+                ["relation"] = "HAS_ASSEMBLY",
+                ["name"] = assemblyName,
+                ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
+            };
 
-            // ComponentRawMaterial
-            var cChildren = (List<object>)cNode["children"];
-            if (!cChildren.Exists(x => ((IDictionary<string, object>)x)["name"].Equals(crmName)))
-            {
-                cChildren.Add(new Dictionary<string, object>
-                {
-                    ["name"] = crmName
-                });
-            }
+            children.Add(assemblyNode);
         }
 
-        // If only one root, return it, else wrap in a dummy root
-        if (materialDict.Count == 1)
-            return materialDict.Values.First();
-        return new Dictionary<string, object>
-        {
-            ["name"] = "Root",
-            ["children"] = materialDict.Values.ToList()
-        };
+        return plant;
     }
+
 }
