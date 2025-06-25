@@ -1,5 +1,4 @@
-﻿using ClosedXML.Excel;
-using CsvHelper;
+﻿using CsvHelper;
 using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities;
 using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
 using Microsoft.AspNetCore.Http;
@@ -10,14 +9,15 @@ using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
 using Neo4j.Driver;
-using System;
-using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using System.Globalization;
-using System.IO;
-using System.Reflection;
 using System.Text.Json;
-using System.Threading.Tasks;
 using UploadSupplyChainAudioTranscriptions.Entities;
+using System.IO;
+using System.Net;
+using Microsoft.Azure.Functions.Worker.Http;
+
 
 namespace UploadSupplyChainAudioTranscriptions;
 
@@ -43,7 +43,7 @@ public class UploadSupplyChainAudioTranscriptions
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = await JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new JsonSerializerOptions
+            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -92,7 +92,7 @@ public class UploadSupplyChainAudioTranscriptions
         return new OkObjectResult("Data uploaded successfully.");
     }
 
-    
+
     [Function("GetSupplyChainAudioTranscriptions")]
     public async Task<IActionResult> Get(
         [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
@@ -242,7 +242,7 @@ public class UploadSupplyChainAudioTranscriptions
         }
     }
 
-    
+
     [Function("GetSupplyChainAudioTranscriptionsBySupplierId")]
     public async Task<IActionResult> GetBySupplierId(
     [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}")] HttpRequest req,
@@ -291,135 +291,6 @@ public class UploadSupplyChainAudioTranscriptions
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
     }
-
-    //[Function("QueryRawMaterialGraph")]
-    //public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
-    //[HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
-    //string rawMaterialName)
-    //{
-    //    if (string.IsNullOrWhiteSpace(rawMaterialName))
-    //    {
-    //        return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
-    //    }
-
-    //    var uri = "neo4j+s://7c2f46c2.databases.neo4j.io";
-    //    var user = "neo4j";
-    //    var password = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
-
-    //    var cypherQuery = $@"
-    //        MATCH (COMPONENTRAWMATERIAL:ComponentRawMaterial {{Name: '{rawMaterialName}'}})<- [r1:COMP_MADEOF_RAWMAT]-(COMPONENT:Component)
-    //              <- [r2:HAS_COMPONENT]- (BOMSUBITEM:BomSubItem)
-    //              <- [r3:HAS_SUBASSEMBLY]-(BOMITEM:BomItem)
-    //              <- [r4:HAS_ASSEMBLY]-(MATERIALBOM:MaterialBOM)
-    //        RETURN COMPONENTRAWMATERIAL, COMPONENT, BOMSUBITEM, BOMITEM, MATERIALBOM, r1, r2, r3, r4
-    //    ";
-
-    //    try
-    //    {
-    //        var driver = GraphDatabase.Driver(uri, AuthTokens.Basic(user, password));
-    //        var session = driver.AsyncSession();
-    //        var result = await session.RunAsync(cypherQuery);
-    //        var records = await result.ToListAsync();
-
-    //        var resultsList = new List<object>();
-    //        foreach (var record in records)
-    //        {
-    //            resultsList.Add(new
-    //            {
-    //                crm = record["COMPONENTRAWMATERIAL"].As<INode>().Properties,
-    //                c = record["COMPONENT"].As<INode>().Properties,
-    //                bsi = record["BOMSUBITEM"].As<INode>().Properties,
-    //                bi = record["BOMITEM"].As<INode>().Properties,
-    //                mb = record["MATERIALBOM"].As<INode>().Properties,
-    //                r1 = record["r1"].As<IRelationship>().Properties,
-    //                r2 = record["r2"].As<IRelationship>().Properties,
-    //                r3 = record["r3"].As<IRelationship>().Properties,
-    //                r4 = record["r4"].As<IRelationship>().Properties
-    //            });
-    //        }
-
-    //        await session.CloseAsync();
-
-    //        var tangledTreeData = BuildHierarchicalJson(resultsList);
-
-    //        return new OkObjectResult(JsonSerializer.Serialize(tangledTreeData));
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        _logger.LogError(ex, "Error querying Neo4j");
-    //        return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-    //    }
-    //}
-
-    //private object BuildHierarchicalJson(List<object> resultsList)
-    //{
-    //    string GetName(IDictionary<string, object> node, string fallback = "Unknown")
-    //    {
-    //        if (node == null) return fallback;
-    //        if (node.TryGetValue("Name", out var nameObj) && nameObj is string nameStr)
-    //            return nameStr;
-    //        if (node.TryGetValue("name", out var nameObj2) && nameObj2 is string nameStr2)
-    //            return nameStr2;
-    //        return fallback;
-    //    }
-
-    //    var plant = new Dictionary<string, object>
-    //    {
-    //        ["name"] = "Hyundai Chennai",
-    //        ["children"] = new List<Dictionary<string, object>>()
-    //    };
-
-    //    var children = (List<Dictionary<string, object>>)plant["children"];
-
-    //    foreach (dynamic record in resultsList)
-    //    {
-    //        var crm = record.crm as IDictionary<string, object>;
-    //        var c = record.c as IDictionary<string, object>;
-    //        var bsi = record.bsi as IDictionary<string, object>;
-    //        var bi = record.bi as IDictionary<string, object>;
-
-    //        string rawMatName = GetName(crm, "ComponentRawMaterial");
-    //        string componentName = GetName(c, "Component");
-    //        string subassemblyId = GetName(bsi, "BomSubItem");
-    //        string assemblyName = GetName(bi, "BomItem");
-
-    //        // Lowest level: raw material node
-    //        var rawMatNode = new Dictionary<string, object>
-    //        {
-    //            ["relation"] = "COMP_MADEOF_RAWMAT",
-    //            ["name"] = rawMatName
-    //        };
-
-    //        // Component node with raw material as child
-    //        var componentNode = new Dictionary<string, object>
-    //        {
-    //            ["relation"] = "HAS_COMPONENT",
-    //            ["name"] = componentName,
-    //            ["children"] = new List<Dictionary<string, object>> { rawMatNode }
-    //        };
-
-    //        // Subassembly node with component as child
-    //        var subassemblyNode = new Dictionary<string, object>
-    //        {
-    //            ["relation"] = "HAS_SUBASSEMBLY",
-    //            ["name"] = subassemblyId,
-    //            ["children"] = new List<Dictionary<string, object>> { componentNode }
-    //        };
-
-    //        // Assembly node with subassembly as child
-    //        var assemblyNode = new Dictionary<string, object>
-    //        {
-    //            ["relation"] = "HAS_ASSEMBLY",
-    //            ["name"] = assemblyName,
-    //            ["children"] = new List<Dictionary<string, object>> { subassemblyNode }
-    //        };
-
-    //        // Add to plant without merging assembly nodes (preserve separate paths)
-    //        children.Add(assemblyNode);
-    //    }
-
-    //    return plant;
-    //}
 
     [Function("QueryRawMaterialGraph")]
     public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
@@ -548,8 +419,177 @@ string rawMaterialName)
 }
 ";
 
-            return new OkObjectResult(result);
-       
+        return new OkObjectResult(result);
+
+    }
+
+
+    [Function("QueryRawMaterialGraph2")]
+    public async Task<IActionResult> QueryNeo4jByRawMaterialAsync2(
+[HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial2/{rawMaterialName}")] HttpRequest req,
+string rawMaterialName)
+    {
+
+        if (string.IsNullOrWhiteSpace(rawMaterialName))
+        {
+            return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
+        }
+
+
+
+        var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
+        var session = driver.AsyncSession();
+
+        var query = @"
+                    MATCH (crm:ComponentRawMaterial {Name: 'Neodymium Magnet'})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
+                    <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
+                    <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
+                    <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
+                    RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+                    ";
+
+
+        try
+        {
+            var cursor = await session.RunAsync(query);
+            var records = await cursor.ToListAsync();
+
+            var testResult = System.Text.Json.JsonSerializer.Serialize(records);
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var bundles = System.Text.Json.JsonSerializer.Deserialize<List<BOMNodeBundle>>(testResult, options);
+
+
+            var groupedBOMs = bundles
+                .GroupBy(b => b.mb.Properties.BillOfMaterial)
+                .Select(group =>
+                {
+                    var mb = group.First().mb.Properties;
+
+                    mb.ToMaterialBOMItems = group.Select(g =>
+                    {
+                        var bi = g.bi.Properties;
+                        var bsi = g.bsi.Properties;
+                        var c = g.c.Properties;
+                        var crm = g.crm.Properties;
+
+                        // Set parent-child references
+                        bi.ParentId = mb.BillOfMaterial;
+                        bsi.ParentId = bi.BillOfMaterialItem;
+                        c.ParentId = bsi.BillofMaterialSubItem;
+                        crm.ParentId = c.PartNumber;
+
+                        c.RawMaterials.Add(crm);
+                        bsi.SubAssemblyComponents = new List<S4_Component> { c };
+                        bi.ToMaterialBOMSubItems = new List<S4_BillofMaterialSubItem> { bsi };
+
+                        return bi;
+                    }).ToList();
+
+                    return mb;
+                }).ToList();
+
+
+            var levels = new List<List<FlatGraphNode>>();
+            var comparer = new FlatGraphNodeComparer();
+
+            // Level 0: Material BOMs
+            var level0 = groupedBOMs
+                .Select(bom => new FlatGraphNode
+                {
+                    id = bom.BillOfMaterial,
+                    displaytext = bom.Material 
+                })
+                .Distinct(comparer)
+                .ToList();
+            levels.Add(level0);
+
+            // Level 1: BOM Items
+            var level1 = groupedBOMs
+                .SelectMany(bom => bom.ToMaterialBOMItems.Select(item => new FlatGraphNode
+                {
+                    id = item.BillOfMaterialItem,
+                    displaytext = item.Material, 
+                    parents = new List<string> { bom.BillOfMaterial }
+                }))
+                .Distinct(comparer)
+                .ToList();
+            levels.Add(level1);
+
+            // Level 2: BOM SubItems
+            var level2 = groupedBOMs
+                .SelectMany(bom => bom.ToMaterialBOMItems
+                    .SelectMany(item => item.ToMaterialBOMSubItems
+                        .Select(sub => new FlatGraphNode
+                        {
+                            id = sub.BillofMaterialSubItem,
+                            displaytext = sub.Material, 
+                            parents = new List<string> { item.BillOfMaterialItem }
+                        })))
+                .Distinct(comparer)
+                .ToList();
+            levels.Add(level2);
+
+            // Level 3: Components
+            var level3 = groupedBOMs
+                .SelectMany(bom => bom.ToMaterialBOMItems
+                    .SelectMany(item => item.ToMaterialBOMSubItems
+                        .SelectMany(sub => sub.SubAssemblyComponents
+                            .Select(comp => new FlatGraphNode
+                            {
+                                id = comp.PartNumber,
+                                displaytext = comp.Name, 
+                                parents = new List<string> { sub.BillofMaterialSubItem }
+                            }))))
+                .Distinct(comparer)
+                .ToList();
+            levels.Add(level3);
+
+            // Level 4: Raw Materials
+            var level4 = groupedBOMs
+                .SelectMany(bom => bom.ToMaterialBOMItems
+                    .SelectMany(item => item.ToMaterialBOMSubItems
+                        .SelectMany(sub => sub.SubAssemblyComponents
+                            .SelectMany(comp => comp.RawMaterials
+                                .Select(raw => new FlatGraphNode
+                                {
+                                    id = $"{comp.PartNumber}::{raw.Name}",
+                                    displaytext = raw.Name,
+                                    parents = new List<string> { comp.PartNumber }
+                                })))))
+                .Distinct(comparer)
+                .ToList();
+            levels.Add(level4);
+
+
+            var settings = new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                Formatting = Formatting.Indented,
+                ContractResolver = new CamelCasePropertyNamesContractResolver()
+            };
+
+            string json = JsonConvert.SerializeObject(levels, settings);
+
+            return new ContentResult
+            {
+                Content = json,
+                ContentType = "application/json",
+                StatusCode = 200
+            };
+        }
+        catch (Exception ex)
+        {
+            return new StatusCodeResult(500);
+        }
+        finally
+        {
+            await session.CloseAsync();
+        }
     }
 
 }
