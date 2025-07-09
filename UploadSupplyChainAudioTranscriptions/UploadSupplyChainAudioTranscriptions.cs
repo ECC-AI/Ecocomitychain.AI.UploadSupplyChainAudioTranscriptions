@@ -435,6 +435,15 @@ string rawMaterialName)
             return new BadRequestObjectResult("Missing or invalid 'rawMaterialName' in route.");
         }
 
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+
+        if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
+        {
+            _logger.LogError("Neo4j connection information is missing in environment variables.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
 
 
         var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
