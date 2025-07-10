@@ -426,6 +426,7 @@ string rawMaterialName)
 
     [Function("QueryRawMaterialGraph2")]
     public async Task<IActionResult> QueryNeo4jByRawMaterialAsync2(
+
 [HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial2/{rawMaterialName}")] HttpRequest req,
 string rawMaterialName)
     {
@@ -472,30 +473,60 @@ string rawMaterialName)
 
             var bundles = System.Text.Json.JsonSerializer.Deserialize<List<BOMNodeBundle>>(testResult, options);
 
+            // Debug: Log the unique Material BOMs found
+            var uniqueMatBOMs = bundles.Select(b => b.mb.Properties.BillOfMaterial).Distinct().ToList();
+            _logger.LogInformation($"Found Material BOMs: {string.Join(", ", uniqueMatBOMs)}");
 
             var groupedBOMs = bundles
                 .GroupBy(b => b.mb.Properties.BillOfMaterial)
                 .Select(group =>
                 {
                     var mb = group.First().mb.Properties;
+                    _logger.LogInformation($"Processing Material BOM: {mb.BillOfMaterial} - {mb.Material}");
 
-                    mb.ToMaterialBOMItems = group.Select(g =>
+                    // Group by BOM Item within each Material BOM
+                    var itemGroups = group.GroupBy(g => g.bi.Properties.BillOfMaterialItem);
+                    _logger.LogInformation($"  Found {itemGroups.Count()} BOM Items for {mb.BillOfMaterial}");
+                    
+                    mb.ToMaterialBOMItems = itemGroups.Select(itemGroup =>
                     {
-                        var bi = g.bi.Properties;
-                        var bsi = g.bsi.Properties;
-                        var c = g.c.Properties;
-                        var crm = g.crm.Properties;
-
-                        // Set parent-child references
+                        var bi = itemGroup.First().bi.Properties;
                         bi.ParentId = mb.BillOfMaterial;
-                        bsi.ParentId = bi.BillOfMaterialItem;
-                        c.ParentId = bsi.BillofMaterialSubItem;
-                        crm.ParentId = c.PartNumber;
-
-                        c.RawMaterials.Add(crm);
-                        bsi.SubAssemblyComponents = new List<S4_Component> { c };
-                        bi.ToMaterialBOMSubItems = new List<S4_BillofMaterialSubItem> { bsi };
-
+                        _logger.LogInformation($"    Processing BOM Item: {bi.BillOfMaterialItem} - {bi.Material}");
+                        
+                        // Group by BOM SubItem within each BOM Item
+                        var subItemGroups = itemGroup.GroupBy(g => g.bsi.Properties.BillofMaterialSubItem);
+                        _logger.LogInformation($"      Found {subItemGroups.Count()} SubItems for {bi.BillOfMaterialItem}");
+                        
+                        bi.ToMaterialBOMSubItems = subItemGroups.Select(subItemGroup =>
+                        {
+                            var bsi = subItemGroup.First().bsi.Properties;
+                            bsi.ParentId = bi.BillOfMaterialItem;
+                            _logger.LogInformation($"        Processing SubItem: {bsi.BillofMaterialSubItem} - {bsi.Material}");
+                            
+                            // Group by Component within each BOM SubItem
+                            var componentGroups = subItemGroup.GroupBy(g => g.c.Properties.PartNumber);
+                            _logger.LogInformation($"          Found {componentGroups.Count()} Components for {bsi.BillofMaterialSubItem}");
+                            
+                            bsi.SubAssemblyComponents = componentGroups.Select(componentGroup =>
+                            {
+                                var c = componentGroup.First().c.Properties;
+                                c.ParentId = bsi.BillofMaterialSubItem;
+                                
+                                // Collect all raw materials for this component
+                                c.RawMaterials = componentGroup.Select(g =>
+                                {
+                                    var crm = g.crm.Properties;
+                                    crm.ParentId = c.PartNumber;
+                                    return crm;
+                                }).ToList();
+                                
+                                return c;
+                            }).ToList();
+                            
+                            return bsi;
+                        }).ToList();
+                        
                         return bi;
                     }).ToList();
 
@@ -516,63 +547,92 @@ string rawMaterialName)
                 .Distinct(comparer)
                 .ToList();
             levels.Add(level0);
+            _logger.LogInformation($"Level 0 (Material BOMs): {level0.Count} items - {string.Join(", ", level0.Select(x => x.id))}");
 
             // Level 1: BOM Items
             var level1 = groupedBOMs
-                .SelectMany(bom => bom.ToMaterialBOMItems.Select(item => new FlatGraphNode
+                .SelectMany(bom => bom.ToMaterialBOMItems?.Select(item => new FlatGraphNode
                 {
                     id = item.BillOfMaterialItem,
                     displaytext = item.Material, 
                     parents = new List<string> { bom.BillOfMaterial }
-                }))
-                .Distinct(comparer)
+                }) ?? Enumerable.Empty<FlatGraphNode>())
+                .GroupBy(node => node.id)
+                .Select(group => new FlatGraphNode
+                {
+                    id = group.Key,
+                    displaytext = group.First().displaytext,
+                    parents = group.SelectMany(g => g.parents).Distinct().ToList()
+                })
                 .ToList();
             levels.Add(level1);
+            _logger.LogInformation($"Level 1 (BOM Items): {level1.Count} items - {string.Join(", ", level1.Select(x => x.id))}");
 
             // Level 2: BOM SubItems
             var level2 = groupedBOMs
-                .SelectMany(bom => bom.ToMaterialBOMItems
-                    .SelectMany(item => item.ToMaterialBOMSubItems
+                .SelectMany(bom => bom.ToMaterialBOMItems?
+                    .SelectMany(item => item.ToMaterialBOMSubItems?
                         .Select(sub => new FlatGraphNode
                         {
                             id = sub.BillofMaterialSubItem,
                             displaytext = sub.Material, 
                             parents = new List<string> { item.BillOfMaterialItem }
-                        })))
-                .Distinct(comparer)
+                        }) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>())
+                .GroupBy(node => node.id)
+                .Select(group => new FlatGraphNode
+                {
+                    id = group.Key,
+                    displaytext = group.First().displaytext,
+                    parents = group.SelectMany(g => g.parents).Distinct().ToList()
+                })
                 .ToList();
             levels.Add(level2);
+            _logger.LogInformation($"Level 2 (BOM SubItems): {level2.Count} items - {string.Join(", ", level2.Select(x => x.id))}");
 
             // Level 3: Components
             var level3 = groupedBOMs
-                .SelectMany(bom => bom.ToMaterialBOMItems
-                    .SelectMany(item => item.ToMaterialBOMSubItems
-                        .SelectMany(sub => sub.SubAssemblyComponents
+                .SelectMany(bom => bom.ToMaterialBOMItems?
+                    .SelectMany(item => item.ToMaterialBOMSubItems?
+                        .SelectMany(sub => sub.SubAssemblyComponents?
                             .Select(comp => new FlatGraphNode
                             {
                                 id = comp.PartNumber,
                                 displaytext = comp.Name, 
                                 parents = new List<string> { sub.BillofMaterialSubItem }
-                            }))))
-                .Distinct(comparer)
+                            }) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>())
+                .GroupBy(node => node.id)
+                .Select(group => new FlatGraphNode
+                {
+                    id = group.Key,
+                    displaytext = group.First().displaytext,
+                    parents = group.SelectMany(g => g.parents).Distinct().ToList()
+                })
                 .ToList();
             levels.Add(level3);
+            _logger.LogInformation($"Level 3 (Components): {level3.Count} items - {string.Join(", ", level3.Select(x => x.id))}");
 
             // Level 4: Raw Materials
             var level4 = groupedBOMs
-                .SelectMany(bom => bom.ToMaterialBOMItems
-                    .SelectMany(item => item.ToMaterialBOMSubItems
-                        .SelectMany(sub => sub.SubAssemblyComponents
-                            .SelectMany(comp => comp.RawMaterials
+                .SelectMany(bom => bom.ToMaterialBOMItems?
+                    .SelectMany(item => item.ToMaterialBOMSubItems?
+                        .SelectMany(sub => sub.SubAssemblyComponents?
+                            .SelectMany(comp => comp.RawMaterials?
                                 .Select(raw => new FlatGraphNode
                                 {
                                     id = $"{comp.PartNumber}::{raw.Name}",
                                     displaytext = raw.Name,
                                     parents = new List<string> { comp.PartNumber }
-                                })))))
-                .Distinct(comparer)
+                                }) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>())
+                .GroupBy(node => node.id)
+                .Select(group => new FlatGraphNode
+                {
+                    id = group.Key,
+                    displaytext = group.First().displaytext,
+                    parents = group.SelectMany(g => g.parents).Distinct().ToList()
+                })
                 .ToList();
             levels.Add(level4);
+            _logger.LogInformation($"Level 4 (Raw Materials): {level4.Count} items - {string.Join(", ", level4.Select(x => x.displaytext))}");
 
 
             var settings = new JsonSerializerSettings
