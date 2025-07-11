@@ -487,32 +487,32 @@ string rawMaterialName)
                     // Group by BOM Item within each Material BOM
                     var itemGroups = group.GroupBy(g => g.bi.Properties.BillOfMaterialItem);
                     _logger.LogInformation($"  Found {itemGroups.Count()} BOM Items for {mb.BillOfMaterial}");
-                    
+
                     mb.ToMaterialBOMItems = itemGroups.Select(itemGroup =>
                     {
                         var bi = itemGroup.First().bi.Properties;
                         bi.ParentId = mb.BillOfMaterial;
                         _logger.LogInformation($"    Processing BOM Item: {bi.BillOfMaterialItem} - {bi.Material}");
-                        
+
                         // Group by BOM SubItem within each BOM Item
                         var subItemGroups = itemGroup.GroupBy(g => g.bsi.Properties.BillofMaterialSubItem);
                         _logger.LogInformation($"      Found {subItemGroups.Count()} SubItems for {bi.BillOfMaterialItem}");
-                        
+
                         bi.ToMaterialBOMSubItems = subItemGroups.Select(subItemGroup =>
                         {
                             var bsi = subItemGroup.First().bsi.Properties;
                             bsi.ParentId = bi.BillOfMaterialItem;
                             _logger.LogInformation($"        Processing SubItem: {bsi.BillofMaterialSubItem} - {bsi.Material}");
-                            
+
                             // Group by Component within each BOM SubItem
                             var componentGroups = subItemGroup.GroupBy(g => g.c.Properties.PartNumber);
                             _logger.LogInformation($"          Found {componentGroups.Count()} Components for {bsi.BillofMaterialSubItem}");
-                            
+
                             bsi.SubAssemblyComponents = componentGroups.Select(componentGroup =>
                             {
                                 var c = componentGroup.First().c.Properties;
                                 c.ParentId = bsi.BillofMaterialSubItem;
-                                
+
                                 // Collect all raw materials for this component
                                 c.RawMaterials = componentGroup.Select(g =>
                                 {
@@ -520,13 +520,13 @@ string rawMaterialName)
                                     crm.ParentId = c.PartNumber;
                                     return crm;
                                 }).ToList();
-                                
+
                                 return c;
                             }).ToList();
-                            
+
                             return bsi;
                         }).ToList();
-                        
+
                         return bi;
                     }).ToList();
 
@@ -542,7 +542,7 @@ string rawMaterialName)
                 .Select(bom => new FlatGraphNode
                 {
                     id = bom.BillOfMaterial,
-                    displaytext = bom.Material 
+                    displaytext = bom.Material
                 })
                 .Distinct(comparer)
                 .ToList();
@@ -554,7 +554,7 @@ string rawMaterialName)
                 .SelectMany(bom => bom.ToMaterialBOMItems?.Select(item => new FlatGraphNode
                 {
                     id = item.BillOfMaterialItem,
-                    displaytext = item.Material, 
+                    displaytext = item.Material,
                     parents = new List<string> { bom.BillOfMaterial }
                 }) ?? Enumerable.Empty<FlatGraphNode>())
                 .GroupBy(node => node.id)
@@ -575,7 +575,7 @@ string rawMaterialName)
                         .Select(sub => new FlatGraphNode
                         {
                             id = sub.BillofMaterialSubItem,
-                            displaytext = sub.Material, 
+                            displaytext = sub.Material,
                             parents = new List<string> { item.BillOfMaterialItem }
                         }) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>())
                 .GroupBy(node => node.id)
@@ -597,7 +597,7 @@ string rawMaterialName)
                             .Select(comp => new FlatGraphNode
                             {
                                 id = comp.PartNumber,
-                                displaytext = comp.Name, 
+                                displaytext = comp.Name,
                                 parents = new List<string> { sub.BillofMaterialSubItem }
                             }) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>()) ?? Enumerable.Empty<FlatGraphNode>())
                 .GroupBy(node => node.id)
@@ -676,91 +676,91 @@ string rawMaterialName)
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 4",
-                        SupplierName = "Supplier Tiers",
+                        SupplierName = "T4_Magnet_Neo",
                         StartDate = "2025-03-31",
                         EndDate = "2025-04-27"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
-                        SupplierName = "T3-TTS comp",
+                        SupplierName = "T3_EPS_Comp",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
-                        SupplierName = "T3-Strategic Material comp",
+                        SupplierName = "T3_Speaker_Dashboard_Comp",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
-                        SupplierName = "T3-Archiving comp",
+                        SupplierName = "T3_Airblower_Comp",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
-                        SupplierName = "T3-Fan motor comp",
+                        SupplierName = "T3_Fan_Motor_Comp",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
-                        SupplierName = "T2-Seabream Subsystem",
+                        SupplierName = "T2_Suspension_Subassm",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
-                        SupplierName = "T2-EPS Subsystem",
+                        SupplierName = "T2_EPS_Subassm",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
-                        SupplierName = "T2-Int.Elec+grip Subsystem",
+                        SupplierName = "T2_Int.Electronics_Subassm",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
-                        SupplierName = "T2-Int.Airthmatic Subsystem",
+                        SupplierName = "T2_Airblower_Subassm",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
-                        SupplierName = "T1-Chassis-system",
+                        SupplierName = "T1_Chassis_Assm",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
-                        SupplierName = "T1-Suspension-system",
+                        SupplierName = "T1_Suspension_Assm",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
-                        SupplierName = "T1-Internal-system",
+                        SupplierName = "T1_InteriorElectronics_Assm",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
-                        SupplierName = "T1-Internal 2-system",
+                        SupplierName = "T1_Interior2_Assm",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
@@ -785,4 +785,264 @@ string rawMaterialName)
         return new OkObjectResult(supplierTimeline);
     }
 
+    [Function("GetSupplyShortageDetailsForICAFlow")]
+    public async Task<IActionResult> GetSupplyShortageDetailsForICAFlowAsync([HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        // Extract query parameters
+        string? oemProductionBatchWeek = req.Query["oemProductionBatchWeek"];
+        string? impactPartNumber = req.Query["impactMaterialPartNumber"];
+        string? impactPartCategory = req.Query["impactMaterialCategory"];
+        string? impactPlant = req.Query["impactPlant"];
+
+        int horizonDuration = 0;
+        int.TryParse(req.Query["horizonDuration"], out horizonDuration);
+        // To-Do: There isn't a well-defined logic to derive the horizon duration.
+        // We will keep this as 4 for the first run and fix this in the next iteration
+
+        if (string.IsNullOrWhiteSpace(oemProductionBatchWeek) ||
+            string.IsNullOrWhiteSpace(impactPartNumber) ||
+            string.IsNullOrWhiteSpace(impactPartCategory) ||
+            horizonDuration <= 0)
+        {
+            return new BadRequestObjectResult("Missing or invalid input parameters in route or query.");
+        }
+
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+
+        if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
+        {
+            _logger.LogError("Neo4j connection information is missing in environment variables.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
+        var session = driver.AsyncSession();
+
+        //TO-DO : 1. This will be one big monolithic method. Refactoring has to be done
+
+        // Step 1: Get the number of vehicles from the SupplyDemand plan for the targeted horizon duration
+        // Horizon weeks for the Cypher 
+
+        var horizonWeeks = new List<string>();
+        int impactWeekNumber = int.TryParse(System.Text.RegularExpressions.Regex.Match(oemProductionBatchWeek ?? "", @"\d+").Value, out var num) ? num : 0;
+        for (int counter = 0; counter < horizonDuration; counter++)
+        {
+            // To-Do- Remove the hardcoded year value
+            horizonWeeks.Add(String.Format("2025-W{0}", impactWeekNumber + counter));
+        }
+
+
+        // The UI is expected to send the following based on the tier of the disruption and the details of the part number 
+        // Note: The part number if not captured correctly from the voice note, the rest of the flow will error out
+        // The fallback has to be coded to check and assign the correct part number
+        // impactPartCategory = "BomItem" if Tier-1 | "BomSubItem" if Tier-2 | "Component" if Tier-3 and | "ComponentRawMaterial" if Tier-4
+        // For the current flow involving neodymium magnets, the UI is expected to send "ComponentRawMaterial"
+        
+        // To-Do : Update the code to construct the query dynamically based on the nature of the part affected
+        string supplyPartShortageCountQuery = @"
+            MATCH (mb:MaterialBOM)
+            WHERE mb.Material = $material
+            OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+            OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
+            OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component)
+            OPTIONAL MATCH (c)-[:COMP_MADEOF_RAWMAT]->(rm:ComponentRawMaterial {Name: $rawMaterialName})
+            WITH mb.BillOfMaterial AS billOfMaterial, COUNT(rm) AS totalRawMaterialCount
+            RETURN totalRawMaterialCount
+        ";
+        //RETURN billOfMaterial, totalRawMaterialCount
+
+        var supplyShortageQueryParameters = new Dictionary<string, object>
+        {
+            { "rawMaterialName", impactPartNumber },           // string, e.g. "magnet-partnumber"
+            { "material", "" }         //To-Do- Fill this dynamically inside the loop
+        };
+
+        var forcastQuery = @"
+            MATCH (n:MRPSupplyDemand)
+            WHERE n.MRPPlant = $impactPlant
+              AND n.PeriodOrSegment IN $horizonWeeks
+            RETURN n";
+
+        var forecastQueryparameters = new Dictionary<string, object>
+        {
+            { "impactPlant", impactPlant },           // string, e.g. "CHN-PLANT-01"
+            { "horizonWeeks", horizonWeeks }          // List<string>, e.g. ["2025-W28", ...]
+        };
+
+
+        try
+        {
+            var cursor = await session.RunAsync(forcastQuery, forecastQueryparameters);
+            var records = await cursor.ToListAsync();
+
+
+            // Pseudocode:
+            // 1. Create a dictionary to group nodes by the "Material" property.
+            // 2. Iterate through the records, extract the "Material" property from each node.
+            // 3. Add each node to the corresponding group in the dictionary.
+            // 4. (Optional) Convert the dictionary to a list or other structure as needed.
+
+            // Implementation:
+            var materialGroups = new Dictionary<string, List<INode>>();
+
+            foreach (var record in records)
+            {
+                var node = record["n"].As<INode>();
+                if (node.Properties.TryGetValue("Material", out var materialObj) && materialObj is string material)
+                {
+                    if (!materialGroups.ContainsKey(material))
+                    {
+                        materialGroups[material] = new List<INode>();
+                    }
+                    materialGroups[material].Add(node);
+                }
+            }
+
+            List<SupplyShortageSummary> supplyshortageSummaryViewColl = new List<SupplyShortageSummary>();
+            foreach (var kvp in materialGroups)
+            {
+                string material = kvp.Key; // this would return the MATERIAL value i.e, the Vehicle name/code 
+                List<INode> supplyDemandNodes = kvp.Value; // List of all the SupplyDemand nodes from the graph
+
+                supplyShortageQueryParameters["material"] = material; // Pass the material code to the supply shortage query
+                // Code to get the number of number of pieces of the raw material in this specific vehicle type (identified by MATERIAL)
+
+                var resultCursor = await session.RunAsync(supplyPartShortageCountQuery, supplyShortageQueryParameters);
+                var queryResult = await cursor.ToListAsync(); // queryResult should be having only row
+                int rawMaterialPerVehicle = (int)queryResult.ElementAt(0).As<INode>().Properties["totalRawMaterialCount"];
+
+                var shortageSummary = new SupplyShortageSummary()
+                {
+                    material = material,
+                    numPartsPerVehicle = rawMaterialPerVehicle,
+                    weeklyForecast = new List<WeeklyForecast>()                   
+                };
+
+                // run the loop to instantiate the view models
+                supplyDemandNodes.ForEach(node =>
+                {
+                    // Extract week number from "PeriodOrSegment" property (e.g., "2025-w27")
+                    string periodOrSegment = node.Properties["PeriodOrSegment"]?.ToString() ?? "";
+                    int weekNum = 0;
+                    var match = System.Text.RegularExpressions.Regex.Match(periodOrSegment, @"\d+$");
+                    if (match.Success && int.TryParse(match.Value, out int parsedWeekNum))
+                    {
+                        weekNum = parsedWeekNum;
+                    }
+                    // Add the demand forecast quantity
+                    shortageSummary.weeklyForecast.Add(new WeeklyForecast
+                    {
+                        demandQuantity = (int)node.Properties["MRPElementOpenQuantity"],
+                        weekNum = weekNum
+                    });
+
+                });
+
+                // This statement should have added the view model for the iterate vehicle type (e.g. Verna or i20)
+                supplyshortageSummaryViewColl.Add(shortageSummary);
+
+            }
+
+
+            // Return the serialized view model 
+            return new OkObjectResult(supplyshortageSummaryViewColl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error executing Neo4j query in GetSupplyShortageDetailsForICAFlowAsync.");
+            var errorResponse = new
+            {
+                error = "An error occurred while processing the request.",
+                exceptionMessage = ex.Message,
+                exceptionType = ex.GetType().FullName,
+                stackTrace = ex.StackTrace
+            };
+            return new ObjectResult(errorResponse)
+            {
+                StatusCode = StatusCodes.Status500InternalServerError
+            };
+        }
+        finally
+        {
+            await session.CloseAsync();
+        }
+    }
+
+
+
 }
+   /* string query;
+    string partParamName;
+    string matchClause;
+
+    switch (impactPartCategory)
+    {
+        case "BomItem":
+            matchClause = "OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem {BillOfMaterialItem: $partNumber})";
+            partParamName = "partNumber";
+            query = @"
+                MATCH (mb:MaterialBOM)
+                WHERE mb.Material = $material
+                " + matchClause + @"
+                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(bi) AS totalPartCount
+                RETURN totalPartCount
+            ";
+            break;
+        case "BomSubItem":
+            matchClause = @"
+                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem {BillofMaterialSubItem: $partNumber})
+            ";
+            partParamName = "partNumber";
+            query = @"
+                MATCH (mb:MaterialBOM)
+                WHERE mb.Material = $material
+                " + matchClause + @"
+                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(si) AS totalPartCount
+                RETURN totalPartCount
+            ";
+            break;
+        case "Component":
+            matchClause = @"
+                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
+                OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component {PartNumber: $partNumber})
+            ";
+            partParamName = "partNumber";
+            query = @"
+                MATCH (mb:MaterialBOM)
+                WHERE mb.Material = $material
+                " + matchClause + @"
+                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(c) AS totalPartCount
+                RETURN totalPartCount
+            ";
+            break;
+        case "ComponentRawMaterial":
+            matchClause = @"
+                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
+                OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component)
+                OPTIONAL MATCH (c)-[:COMP_MADEOF_RAWMAT]->(rm:ComponentRawMaterial {Name: $partNumber})
+            ";
+            partParamName = "partNumber";
+            query = @"
+                MATCH (mb:MaterialBOM)
+                WHERE mb.Material = $material
+                " + matchClause + @"
+                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(rm) AS totalPartCount
+                RETURN totalPartCount
+            ";
+            break;
+        default:
+            throw new ArgumentException("Invalid impactPartCategory");
+    }
+
+    // Usage example:
+    var parameters = new Dictionary<string, object>
+    {
+        { "material", material },
+        { partParamName, impactPartNumber }
+    };
+   */
