@@ -910,8 +910,8 @@ string rawMaterialName)
                 // Code to get the number of number of pieces of the raw material in this specific vehicle type (identified by MATERIAL)
 
                 var resultCursor = await session.RunAsync(supplyPartShortageCountQuery, supplyShortageQueryParameters);
-                var queryResult = await cursor.ToListAsync(); // queryResult should be having only row
-                int rawMaterialPerVehicle = (int)queryResult.ElementAt(0).As<INode>().Properties["totalRawMaterialCount"];
+                var queryResult = await resultCursor.ToListAsync(); // queryResult should be having only row
+                int rawMaterialPerVehicle = queryResult.ElementAt(0)["totalRawMaterialCount"].As<int>();
 
                 var shortageSummary = new SupplyShortageSummary()
                 {
@@ -934,7 +934,7 @@ string rawMaterialName)
                     // Add the demand forecast quantity
                     shortageSummary.weeklyForecast.Add(new WeeklyForecast
                     {
-                        demandQuantity = (int)node.Properties["MRPElementOpenQuantity"],
+                        demandQuantity = Convert.ToInt32(node.Properties["MRPElementOpenQuantity"]),
                         weekNum = weekNum
                     });
 
