@@ -82,4 +82,23 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
         public List<S4_BillofMaterialItem>? ToMaterialBOMItems { get; set; }
 
     }
+
+    public class SupplierTimelineItem
+    {
+        public string Tier { get; set; }
+        public string SupplierName { get; set; }
+        public string Category { get; set; }
+        public string StartDate { get; set; }
+        public string EndDate { get; set; }
+    }
+
+    public class SupplierTimelineData
+    {
+        public List<SupplierTimelineItem> Suppliers { get; set; } = new();
+    }
+
+    public class SupplierTimelineResponse
+    {
+        public SupplierTimelineData SupplierTimeline { get; set; } = new();
+    }
 }

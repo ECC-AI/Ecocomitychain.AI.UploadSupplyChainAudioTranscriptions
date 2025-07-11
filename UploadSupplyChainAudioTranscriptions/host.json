@@ -1,12 +1,24 @@
 {
-    "version": "2.0",
-    "logging": {
-        "applicationInsights": {
-            "samplingSettings": {
-                "isEnabled": true,
-                "excludedTypes": "Request"
-            },
-            "enableLiveMetricsFilters": true
-        }
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      },
+      "enableLiveMetricsFilters": true
     }
+  },
+  "SapGraphSettings": {
+    "BaseUrl": "http://localhost:7290/api",
+    "ClientId": "test",
+    "ClientSecret": "test",
+    "TokenUrl": "https://ecocomitychainstub.azurewebsites.net/api/token",
+    "IsLocal": true
+  },
+  "Neo4j": {
+    "Username": "neo4j",
+    "Password": "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4",
+    "Uri": "neo4j+s://7c2f46c2.databases.neo4j.io"
+  }
 }
