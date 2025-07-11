@@ -677,7 +677,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 4",
                         SupplierName = "Supplier Tiers",
-                        Category = "Original (tool)",
                         StartDate = "2025-03-31",
                         EndDate = "2025-04-27"
                     },
@@ -685,7 +684,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3-TTS comp",
-                        Category = "Component Supplier",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
@@ -693,7 +691,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3-Strategic Material comp",
-                        Category = "Strategic Materials",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
@@ -701,7 +698,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3-Archiving comp",
-                        Category = "Archiving Components",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
@@ -709,7 +705,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3-Fan motor comp",
-                        Category = "Fan Motor Components",
                         StartDate = "2025-04-28",
                         EndDate = "2025-05-11"
                     },
@@ -717,7 +712,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2-Seabream Subsystem",
-                        Category = "Subsystem Integration",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
@@ -725,7 +719,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2-EPS Subsystem",
-                        Category = "EPS Integration",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
@@ -733,7 +726,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2-Int.Elec+grip Subsystem",
-                        Category = "Electronics & Grip Integration",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
@@ -741,7 +733,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2-Int.Airthmatic Subsystem",
-                        Category = "Airthmatic Integration",
                         StartDate = "2025-05-12",
                         EndDate = "2025-05-25"
                     },
@@ -749,7 +740,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1-Chassis-system",
-                        Category = "Chassis Integration",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
@@ -757,7 +747,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1-Suspension-system",
-                        Category = "Suspension Integration",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
@@ -765,7 +754,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1-Internal-system",
-                        Category = "Internal Systems Integration",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
@@ -773,7 +761,6 @@ string rawMaterialName)
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1-Internal 2-system",
-                        Category = "Internal Systems Integration 2",
                         StartDate = "2025-05-26",
                         EndDate = "2025-06-08"
                     },
@@ -781,7 +768,6 @@ string rawMaterialName)
                     {
                         Tier = "OEM",
                         SupplierName = "Chennai Plant",
-                        Category = "Manufacturing Plant",
                         StartDate = "2025-06-09",
                         EndDate = "2025-06-22"
                     },
@@ -789,7 +775,6 @@ string rawMaterialName)
                     {
                         Tier = "OEM",
                         SupplierName = "HYD Plant",
-                        Category = "Manufacturing Plant",
                         StartDate = "2025-06-09",
                         EndDate = "2025-06-22"
                     }

@@ -87,7 +87,6 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
     {
         public string Tier { get; set; }
         public string SupplierName { get; set; }
-        public string Category { get; set; }
         public string StartDate { get; set; }
         public string EndDate { get; set; }
     }
