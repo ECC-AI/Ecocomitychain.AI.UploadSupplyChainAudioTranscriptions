@@ -18,6 +18,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
     internal class WeeklyForecast
     {
         public int weekNum { get; set; }
-        public int demandQuantity { get; set; }
+        public int fgDemandQuantity { get; set; }
+        public int numPartsNeeded { get; set; }
     }
 }

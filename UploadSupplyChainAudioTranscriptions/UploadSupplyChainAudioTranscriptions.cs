@@ -931,11 +931,15 @@ string rawMaterialName)
                     {
                         weekNum = parsedWeekNum;
                     }
+
+                    int mrpElementOpenQuantity = Convert.ToInt32(node.Properties["MRPElementOpenQuantity"]);
                     // Add the demand forecast quantity
                     shortageSummary.weeklyForecast.Add(new WeeklyForecast
                     {
-                        demandQuantity = Convert.ToInt32(node.Properties["MRPElementOpenQuantity"]),
-                        weekNum = weekNum
+                        fgDemandQuantity = mrpElementOpenQuantity,
+                        weekNum = weekNum,
+                        numPartsNeeded = mrpElementOpenQuantity * rawMaterialPerVehicle
+
                     });
 
                 });
