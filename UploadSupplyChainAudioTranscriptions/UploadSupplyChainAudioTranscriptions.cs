@@ -9,14 +9,12 @@ using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
 using Neo4j.Driver;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
+using System.Text;
 using System.Globalization;
-using System.Text.Json;
 using UploadSupplyChainAudioTranscriptions.Entities;
-using System.IO;
-using System.Net;
-using Microsoft.Azure.Functions.Worker.Http;
+using UploadSupplyChainAudioTranscriptions.Services;
+using Newtonsoft.Json;
+
 
 
 namespace UploadSupplyChainAudioTranscriptions;
@@ -24,10 +22,14 @@ namespace UploadSupplyChainAudioTranscriptions;
 public class UploadSupplyChainAudioTranscriptions
 {
     private readonly ILogger<UploadSupplyChainAudioTranscriptions> _logger;
+    private readonly AzureTableService _tableService;
 
-    public UploadSupplyChainAudioTranscriptions(ILogger<UploadSupplyChainAudioTranscriptions> logger)
+    public UploadSupplyChainAudioTranscriptions(
+        ILogger<UploadSupplyChainAudioTranscriptions> logger,
+        AzureTableService tableService)
     {
         _logger = logger;
+        _tableService = tableService;
     }
 
     [Function("UploadSupplyChainAudioTranscriptions")]
@@ -43,7 +45,7 @@ public class UploadSupplyChainAudioTranscriptions
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new JsonSerializerOptions
+            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new System.Text.Json.JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -466,7 +468,7 @@ string rawMaterialName)
 
             var testResult = System.Text.Json.JsonSerializer.Serialize(records);
 
-            var options = new JsonSerializerOptions
+            var options = new System.Text.Json.JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             };
@@ -639,7 +641,7 @@ string rawMaterialName)
             {
                 NullValueHandling = NullValueHandling.Ignore,
                 Formatting = Formatting.Indented,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
+                ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
             };
 
             string json = JsonConvert.SerializeObject(levels, settings);
@@ -839,7 +841,7 @@ string rawMaterialName)
         // The fallback has to be coded to check and assign the correct part number
         // impactPartCategory = "BomItem" if Tier-1 | "BomSubItem" if Tier-2 | "Component" if Tier-3 and | "ComponentRawMaterial" if Tier-4
         // For the current flow involving neodymium magnets, the UI is expected to send "ComponentRawMaterial"
-        
+
         // To-Do : Update the code to construct the query dynamically based on the nature of the part affected
         string supplyPartShortageCountQuery = @"
             MATCH (mb:MaterialBOM)
@@ -851,7 +853,7 @@ string rawMaterialName)
             WITH mb.BillOfMaterial AS billOfMaterial, COUNT(rm) AS totalRawMaterialCount
             RETURN totalRawMaterialCount
         ";
-        //RETURN billOfMaterial, totalRawMaterialCount
+
 
         var supplyShortageQueryParameters = new Dictionary<string, object>
         {
@@ -900,7 +902,7 @@ string rawMaterialName)
                 }
             }
 
-            List<SupplyShortageSummary> supplyshortageSummaryViewColl = new List<SupplyShortageSummary>();
+            List<SupplyShortageSummaryViewModel> supplyshortageSummaryViewColl = new List<SupplyShortageSummaryViewModel>();
             foreach (var kvp in materialGroups)
             {
                 string material = kvp.Key; // this would return the MATERIAL value i.e, the Vehicle name/code 
@@ -913,11 +915,11 @@ string rawMaterialName)
                 var queryResult = await resultCursor.ToListAsync(); // queryResult should be having only row
                 int rawMaterialPerVehicle = queryResult.ElementAt(0)["totalRawMaterialCount"].As<int>();
 
-                var shortageSummary = new SupplyShortageSummary()
+                var shortageSummary = new SupplyShortageSummaryViewModel()
                 {
                     material = material,
                     numPartsPerVehicle = rawMaterialPerVehicle,
-                    weeklyForecast = new List<WeeklyForecast>()                   
+                    weeklyForecast = new List<WeeklyForecast>()
                 };
 
                 // run the loop to instantiate the view models
@@ -975,78 +977,407 @@ string rawMaterialName)
     }
 
 
-
-}
-   /* string query;
-    string partParamName;
-    string matchClause;
-
-    switch (impactPartCategory)
+    [Function("CreateSupplierProfile")]
+    public async Task<IActionResult> CreateSupplierProfileAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
     {
-        case "BomItem":
-            matchClause = "OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem {BillOfMaterialItem: $partNumber})";
-            partParamName = "partNumber";
-            query = @"
-                MATCH (mb:MaterialBOM)
-                WHERE mb.Material = $material
-                " + matchClause + @"
-                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(bi) AS totalPartCount
-                RETURN totalPartCount
-            ";
-            break;
-        case "BomSubItem":
-            matchClause = @"
-                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
-                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem {BillofMaterialSubItem: $partNumber})
-            ";
-            partParamName = "partNumber";
-            query = @"
-                MATCH (mb:MaterialBOM)
-                WHERE mb.Material = $material
-                " + matchClause + @"
-                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(si) AS totalPartCount
-                RETURN totalPartCount
-            ";
-            break;
-        case "Component":
-            matchClause = @"
-                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
-                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
-                OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component {PartNumber: $partNumber})
-            ";
-            partParamName = "partNumber";
-            query = @"
-                MATCH (mb:MaterialBOM)
-                WHERE mb.Material = $material
-                " + matchClause + @"
-                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(c) AS totalPartCount
-                RETURN totalPartCount
-            ";
-            break;
-        case "ComponentRawMaterial":
-            matchClause = @"
-                OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
-                OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
-                OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component)
-                OPTIONAL MATCH (c)-[:COMP_MADEOF_RAWMAT]->(rm:ComponentRawMaterial {Name: $partNumber})
-            ";
-            partParamName = "partNumber";
-            query = @"
-                MATCH (mb:MaterialBOM)
-                WHERE mb.Material = $material
-                " + matchClause + @"
-                WITH mb.BillOfMaterial AS billOfMaterial, COUNT(rm) AS totalPartCount
-                RETURN totalPartCount
-            ";
-            break;
-        default:
-            throw new ArgumentException("Invalid impactPartCategory");
+        _logger.LogInformation("Creating supplier profile.");
+
+        SupplierProfileCreationRequestModel? supplierProfileRequest;
+        try
+        {
+            supplierProfileRequest = await System.Text.Json.JsonSerializer.DeserializeAsync<SupplierProfileCreationRequestModel>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize supplier profile JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (supplierProfileRequest == null || string.IsNullOrWhiteSpace(supplierProfileRequest.SupplierName))
+        {
+            return new BadRequestObjectResult("SupplierName and Tier are required.");
+        }
+
+        string supplierId = $"Supp-{Guid.NewGuid().ToString("N")[..4]}";
+        string plantId = $"Plant-{Guid.NewGuid().ToString("N")[..4]}";
+        var profileEntity = new SupplierProfileBase
+        {
+            SupplierId = supplierId,
+            SupplierName = supplierProfileRequest.SupplierName,
+            Timestamp = DateTimeOffset.UtcNow
+        };
+
+        var supplierPlantEntity = new SupplierPlant
+        {
+            SupplierId = supplierId,
+            PlantId = plantId,
+            Timestamp = DateTimeOffset.UtcNow
+        };
+
+        int partCount = supplierProfileRequest.PartNumbers.Count;
+        List<SupplierPartDetail> supplierPartDetailColl = new List<SupplierPartDetail>();
+        if (partCount > 0)
+        {
+            supplierProfileRequest.PartNumbers.ForEach(part =>
+            {
+                var supplierPartDetails = new SupplierPartDetail
+                {
+                    PartNumber = part,
+                    SupplierId = supplierId
+                };
+                supplierPartDetailColl.Add(supplierPartDetails);
+            });
+        }
+
+
+        try
+        {
+            await _tableService.AddEntityAsync("SupplierProfiles", profileEntity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error writing supplier profile to Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            await _tableService.AddEntityAsync("SupplierPlants", supplierPlantEntity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error writing supplier plant details to Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            await _tableService.AddEntitiesAsync("SupplierPartDetails", supplierPartDetailColl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error writing supplier part numbers to Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        SupplierProfileCreationResponseModel profilecreationResponse = new SupplierProfileCreationResponseModel
+        {
+            SupplierId = supplierId,
+            PlantId = plantId,
+            SupplierName = supplierProfileRequest.SupplierName
+        };
+        
+        // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
+        // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
+
+
+        return new OkObjectResult(new { profilecreationResponse, message = "Supplier profile created successfully." });
     }
 
-    // Usage example:
-    var parameters = new Dictionary<string, object>
+    // To-Do: This method needs to moved to Core + Infra and called from a function app that listens to an Azure Storage Queue
+    private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
-        { "material", material },
-        { partParamName, impactPartNumber }
-    };
-   */
+        // Cypher query to create SubtierSupplier node and connect part numbers as separate nodes
+        // Note: A new part node is being created that corresponds to the suppliers local part naming convention
+        // To-Do: An edge needs to be created that connects the supplier with the appropriate BOM node
+        // Note: This involves some amount of complexity - Depending on the tier of the supplier we should select 
+        // BomItem, BomSubitem, Component or ComponentRawMaterial in the node filer condition
+        // This will follow the same logic as the REGION code that is commented for now
+
+        // Note: This code is based on Neo4j .net driver. Lift and shift to Infra wont work
+        // To-Do : We need to change the code to use Neo4j .net client. The DTO also needs to be moved to the infra project
+
+        var cypher = @"
+            CREATE (s:SubtierSupplier {
+                SupplierId: $supplierId,
+                SupplierName: $supplierName,
+                LeadTimeInDays: $leadTimeInDays
+            })
+            WITH s
+            UNWIND $partNumbers AS partNumber
+            MERGE (p:Part {PartNumber: partNumber})
+            MERGE (s)-[:SUPPLIES]->(p)
+            RETURN s
+        ";
+
+        var parameters = new Dictionary<string, object>
+        {
+            { "supplierId", subtierSupplier.SupplierId },
+            { "supplierName", subtierSupplier.SupplierName },
+            { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
+            { "partNumbers", subtierSupplier.PartNumbers }
+        };
+
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+
+        if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
+        {
+            _logger.LogError("Neo4j connection information is missing.");
+            return false;
+        }
+
+        try
+        {
+            using var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
+            await using var session = driver.AsyncSession();
+            var result = await session.RunAsync(cypher, parameters);
+            var createdNode = await result.SingleAsync();
+
+            // Future enhancement: Add more supplier attributes and relationships as needed
+
+            return createdNode != null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create SubtierSupplier node in Neo4j.");
+            return false;
+        }
+    }
+
+
+
+    [Function("SupplierMinimalSignIn")]
+    public async Task<IActionResult> SupplierMinimalSignInAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        // Read sign-in values from POST request body instead of query parameters
+        SupplierMinimalSigninModel? signInRequest;
+        try
+        {
+            signInRequest = await System.Text.Json.JsonSerializer.DeserializeAsync<SupplierMinimalSigninModel>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize sign-in request JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (signInRequest == null ||
+            string.IsNullOrWhiteSpace(signInRequest.SupplierId) ||
+            string.IsNullOrWhiteSpace(signInRequest.SupplierName) ||
+            string.IsNullOrWhiteSpace(signInRequest.PlantId))
+        {
+            return new BadRequestObjectResult("supplierId, supplierName and plantId are required.");
+        }
+
+        string supplierId = signInRequest.SupplierId;
+        string supplierName = signInRequest.SupplierName;
+        string plantId = signInRequest.PlantId;
+
+        // Attempt to retrieve the supplier profile from Azure Table Storage
+        var supplierProfile = await _tableService.GetEntityAsync<SupplierProfileBase>("SupplierProfiles", supplierId, supplierName);
+
+        if (supplierProfile == null)
+        {
+            // Supplier not found
+            return new UnauthorizedObjectResult(new
+            {
+                success = false,
+                message = "Supplier not found. Please check your Supplier ID."
+            });
+        }
+
+        // Validate supplier name (case-insensitive)
+        if (!string.Equals(supplierProfile.SupplierName, supplierName, StringComparison.OrdinalIgnoreCase))
+        {
+            // Supplier name does not match
+            return new UnauthorizedObjectResult(new
+            {
+                success = false,
+                message = "Supplier name does not match the record."
+            });
+        }
+
+        // Future enhancement: Add audit logging for sign-in attempts
+
+        // Successful sign-in
+        return new OkObjectResult(new
+        {
+            success = true,
+            supplierId = supplierProfile.SupplierId,
+            supplierName = supplierProfile.SupplierName,
+            message = "Sign-in successful."
+        });
+
+    }
+
+
+    [Function("CreateProductionBatch")]
+    public async Task<IActionResult> CreateProductionBatchAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        // Read and deserialize the POST request body to SupplierBatchCreationModel
+        SupplierBatchCreationModel? batchRequest;
+        try
+        {
+            batchRequest = await System.Text.Json.JsonSerializer.DeserializeAsync<SupplierBatchCreationModel>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize production batch request JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (batchRequest == null)
+        {
+            return new BadRequestObjectResult("Production batch request body is required.");
+        }
+
+        string batchId = $"Batch-{Guid.NewGuid().ToString("N")[..4]}";
+        var batchData = new SupplierBatchDetails
+        {
+            SupplierId = batchRequest.SupplierId,
+            PlantId = batchRequest.PlantId,
+            BatchId = batchId,
+            BatchStartDate = batchRequest.BatchStartDate,
+            BatchEndDate = batchRequest.BatchEndDate,
+            BatchStatus = SupplierBatchStatus.ACTIVE,
+            OEMScheduleNumber = string.IsNullOrEmpty(batchRequest.OEMScheduleNumber) ? string.Empty : batchRequest.OEMScheduleNumber
+        };
+
+        try
+        {
+            await _tableService.AddEntityAsync("SupplierBatchDetails", batchData);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error writing supplier batch transaction data to Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        return new OkObjectResult(new { batchId, message = "Production batch request processed.", batchRequest });
+    }
+
+
+    [Function("GetProductionBatches")]
+    public async Task<IActionResult> GetSupplierBatchesAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        // Read supplierId from query parameters
+        string? supplierId = req.Query["supplierId"];
+        if (string.IsNullOrWhiteSpace(supplierId))
+        {
+            return new BadRequestObjectResult("supplierId is required.");
+        }
+
+        // Query SupplierBatchDetails table for all batches for the supplier
+        string filter = $"PartitionKey eq '{supplierId}'";
+        List<SupplierBatchDetails> batchEntities;
+        try
+        {
+            batchEntities = await _tableService.QueryEntitiesAsync<SupplierBatchDetails>("SupplierBatchDetails", filter);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying SupplierBatchDetails from Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        // Map entities to response model
+
+        List<string> batchIds = batchEntities.Select(b => b.BatchId).ToList();
+        var batchQueryResponse = new SupplierBatchDetailsResponseModel
+        {
+            SupplierId = supplierId,
+            BatchIds = batchIds
+        };
+
+        return new OkObjectResult(batchQueryResponse);
+    }
+}
+
+
+
+
+
+#region CODE_PARTCOUNT_PER_MATERIAL_CATEGORY
+// To-Do: To be integrated into the main method. 
+/* string query;
+ string partParamName;
+ string matchClause;
+
+ switch (impactPartCategory)
+ {
+     case "BomItem":
+         matchClause = "OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem {BillOfMaterialItem: $partNumber})";
+         partParamName = "partNumber";
+         query = @"
+             MATCH (mb:MaterialBOM)
+             WHERE mb.Material = $material
+             " + matchClause + @"
+             WITH mb.BillOfMaterial AS billOfMaterial, COUNT(bi) AS totalPartCount
+             RETURN totalPartCount
+         ";
+         break;
+     case "BomSubItem":
+         matchClause = @"
+             OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+             OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem {BillofMaterialSubItem: $partNumber})
+         ";
+         partParamName = "partNumber";
+         query = @"
+             MATCH (mb:MaterialBOM)
+             WHERE mb.Material = $material
+             " + matchClause + @"
+             WITH mb.BillOfMaterial AS billOfMaterial, COUNT(si) AS totalPartCount
+             RETURN totalPartCount
+         ";
+         break;
+     case "Component":
+         matchClause = @"
+             OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+             OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
+             OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component {PartNumber: $partNumber})
+         ";
+         partParamName = "partNumber";
+         query = @"
+             MATCH (mb:MaterialBOM)
+             WHERE mb.Material = $material
+             " + matchClause + @"
+             WITH mb.BillOfMaterial AS billOfMaterial, COUNT(c) AS totalPartCount
+             RETURN totalPartCount
+         ";
+         break;
+     case "ComponentRawMaterial":
+         matchClause = @"
+             OPTIONAL MATCH (mb)-[:HAS_ASSEMBLY]->(bi:BomItem)
+             OPTIONAL MATCH (bi)-[:HAS_SUBASSEMBLY]->(si:BomSubItem)
+             OPTIONAL MATCH (si)-[:HAS_COMPONENT]->(c:Component)
+             OPTIONAL MATCH (c)-[:COMP_MADEOF_RAWMAT]->(rm:ComponentRawMaterial {Name: $partNumber})
+         ";
+         partParamName = "partNumber";
+         query = @"
+             MATCH (mb:MaterialBOM)
+             WHERE mb.Material = $material
+             " + matchClause + @"
+             WITH mb.BillOfMaterial AS billOfMaterial, COUNT(rm) AS totalPartCount
+             RETURN totalPartCount
+         ";
+         break;
+     default:
+         throw new ArgumentException("Invalid impactPartCategory");
+ }
+
+ // Usage example:
+ var parameters = new Dictionary<string, object>
+ {
+     { "material", material },
+     { partParamName, impactPartNumber }
+ };
+*/
+#endregion
