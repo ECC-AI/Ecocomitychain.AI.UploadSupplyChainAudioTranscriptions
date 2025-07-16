@@ -838,8 +838,8 @@ string rawMaterialName)
 
         // The UI is expected to send the following based on the tier of the disruption and the details of the part number 
         // Note: The part number if not captured correctly from the voice note, the rest of the flow will error out
-        // The fallback has to be coded to check and assign the correct part number
-        // impactPartCategory = "BomItem" if Tier-1 | "BomSubItem" if Tier-2 | "Component" if Tier-3 and | "ComponentRawMaterial" if Tier-4
+        // To-Do:The fallback has to be coded to check and assign the correct part number
+        // To-Do: impactPartCategory = "BomItem" if Tier-1 | "BomSubItem" if Tier-2 | "Component" if Tier-3 and | "ComponentRawMaterial" if Tier-4
         // For the current flow involving neodymium magnets, the UI is expected to send "ComponentRawMaterial"
 
         // To-Do : Update the code to construct the query dynamically based on the nature of the part affected
@@ -1071,10 +1071,20 @@ string rawMaterialName)
             PlantId = plantId,
             SupplierName = supplierProfileRequest.SupplierName
         };
-        
+
         // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
         // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
-
+        // To-Do: The leadtime is hardcoded for now (20 days ~ 3 weeks). This has to be gotten from the supplier, through progressive profiling
+        // Note: The supplier might be having different lead times for different parts and the plants they supply to
+        // To-Do: Pertaining to the issue mentioned in the previous point, we need to add a 3 way connection between the part#, deliveryPlant and the leadtime value
+        await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
+        {
+            LeadTimeInDays = 20, 
+            PartNumbers = supplierProfileRequest.PartNumbers,
+            SupplierId = supplierId,
+            SupplierName = supplierProfileRequest.SupplierName,
+            Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier)? "Tier-N" : supplierProfileRequest.Tier
+        });
 
         return new OkObjectResult(new { profilecreationResponse, message = "Supplier profile created successfully." });
     }
@@ -1082,25 +1092,30 @@ string rawMaterialName)
     // To-Do: This method needs to moved to Core + Infra and called from a function app that listens to an Azure Storage Queue
     private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
-        // Cypher query to create SubtierSupplier node and connect part numbers as separate nodes
+
         // Note: A new part node is being created that corresponds to the suppliers local part naming convention
-        // To-Do: An edge needs to be created that connects the supplier with the appropriate BOM node
-        // Note: This involves some amount of complexity - Depending on the tier of the supplier we should select 
+        // To-Do: An edge needs to be created that connects the supplier with the appropriate BOM node.
+        // To-Do: This can be implemented only if we have a process that does the mapping between the local and OEM part numbers. This is yet to be figured out
+
+        // Note: This involves some amount of complexity - Depending on the tier of the supplier we select 
         // BomItem, BomSubitem, Component or ComponentRawMaterial in the node filer condition
         // This will follow the same logic as the REGION code that is commented for now
 
         // Note: This code is based on Neo4j .net driver. Lift and shift to Infra wont work
         // To-Do : We need to change the code to use Neo4j .net client. The DTO also needs to be moved to the infra project
 
+        // Cypher query to create SubtierSupplier node and connect part numbers as separate nodes
+        // To-Do: Enhance the query to create the supplier plant nodes (rationale: plant monitoring using Resilinc/Everstream)
         var cypher = @"
             CREATE (s:SubtierSupplier {
                 SupplierId: $supplierId,
                 SupplierName: $supplierName,
-                LeadTimeInDays: $leadTimeInDays
+                LeadTimeInDays: $leadTimeInDays,
+                Tier: $supplierTier
             })
             WITH s
             UNWIND $partNumbers AS partNumber
-            MERGE (p:Part {PartNumber: partNumber})
+            MERGE (p:SupplierPart {PartNumber: partNumber})
             MERGE (s)-[:SUPPLIES]->(p)
             RETURN s
         ";
@@ -1110,7 +1125,8 @@ string rawMaterialName)
             { "supplierId", subtierSupplier.SupplierId },
             { "supplierName", subtierSupplier.SupplierName },
             { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
-            { "partNumbers", subtierSupplier.PartNumbers }
+            { "partNumbers", subtierSupplier.PartNumbers },
+            { "supplierTier", subtierSupplier.Tier }
         };
 
         string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");

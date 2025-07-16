@@ -17,5 +17,6 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
 
         // This has to be filled during progressive profiling
         public int? LeadTimeInDays { get; set; }
+        public string? Tier { get; set; }
     }
 }

@@ -15,6 +15,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
         
         public required List<string> PartNumbers { get; set; }
         public required string PlantName { get; set; }
+        public string? Tier { get; set; } // Progressive Profiling
 
     }
 
