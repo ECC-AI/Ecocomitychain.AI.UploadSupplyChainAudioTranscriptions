@@ -45,7 +45,8 @@ public class UploadSupplyChainAudioTranscriptions
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body, new System.Text.Json.JsonSerializerOptions
+            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body,
+            new System.Text.Json.JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -1263,6 +1264,7 @@ string rawMaterialName)
             BatchStartDate = batchRequest.BatchStartDate,
             BatchEndDate = batchRequest.BatchEndDate,
             BatchStatus = SupplierBatchStatus.ACTIVE,
+            SupplierBatchNumber = batchRequest.SupplierBatchNumber,
             OEMScheduleNumber = string.IsNullOrEmpty(batchRequest.OEMScheduleNumber) ? string.Empty : batchRequest.OEMScheduleNumber
         };
 
@@ -1306,11 +1308,11 @@ string rawMaterialName)
 
         // Map entities to response model
 
-        List<string> batchIds = batchEntities.Select(b => b.BatchId).ToList();
+        List<string> batchNumbers = batchEntities.Select(b => b.SupplierBatchNumber).ToList();
         var batchQueryResponse = new SupplierBatchDetailsResponseModel
         {
             SupplierId = supplierId,
-            BatchIds = batchIds
+            BatchNumbers = batchNumbers
         };
 
         return new OkObjectResult(batchQueryResponse);

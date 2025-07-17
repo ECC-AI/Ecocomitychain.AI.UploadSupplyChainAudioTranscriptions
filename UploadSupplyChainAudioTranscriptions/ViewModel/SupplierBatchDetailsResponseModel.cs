@@ -9,6 +9,6 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
     public class SupplierBatchDetailsResponseModel
     {
         public required string SupplierId { get; set; }
-        public required List<string> BatchIds { get; set; }
+        public required List<string> BatchNumbers { get; set; }
     }
 }

@@ -13,5 +13,6 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
         public DateTime BatchStartDate { get; set; }
         public DateTime BatchEndDate { get; set; }
         public string? OEMScheduleNumber { get; set; }
+        public required string  SupplierBatchNumber { get; set; }
     }
 }

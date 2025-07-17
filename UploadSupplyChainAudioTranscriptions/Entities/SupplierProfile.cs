@@ -164,6 +164,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
         public string SupplierId { get; set; }
         public string PlantId { get; set; }
         public string BatchId { get; set; }
+        public string SupplierBatchNumber { get; set; } // This is the batch number assigned by the supplier
         public DateTime BatchStartDate { get; set; }
         public DateTime BatchEndDate { get; set; }
         public string? OEMScheduleNumber { get; set; } // This has been marked as nullable for now. Make this required once we know the mapping logic
