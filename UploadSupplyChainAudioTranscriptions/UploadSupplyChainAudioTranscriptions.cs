@@ -1317,7 +1317,7 @@ string rawMaterialName)
     }
 
     
-    [FunctionName("CalculateSupplyChainRisk")]
+    [Function("CalculateSupplyChainRisk")]
     public async Task<IActionResult> CalculateSupplyChainRisk(
         [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req)
     {
