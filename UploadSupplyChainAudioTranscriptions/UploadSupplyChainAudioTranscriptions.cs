@@ -1363,11 +1363,16 @@ string rawMaterialName)
             float revenueAtRisk = unitsAtRisk * averageSellingPrice;
             float stockoutPenalty = unitsAtRisk * request.StockoutPenaltyRate;
 
+            // Convert INR to USD (example rate: 1 USD = 83 INR)
+            const float inrToUsd = 83.0f;
+            float revenueAtRiskUSD = revenueAtRisk / inrToUsd;
+            float stockoutPenaltyUSD = stockoutPenalty / inrToUsd;
+
             var response = new RiskCalculationResponse
             {
                 UnitsAtRisk = unitsAtRisk,
-                RevenueAtRisk = revenueAtRisk,
-                StockoutPenalty = stockoutPenalty
+                RevenueAtRiskUSD = revenueAtRiskUSD,
+                StockoutPenaltyUSD = stockoutPenaltyUSD
             };
 
             return new OkObjectResult(response);
