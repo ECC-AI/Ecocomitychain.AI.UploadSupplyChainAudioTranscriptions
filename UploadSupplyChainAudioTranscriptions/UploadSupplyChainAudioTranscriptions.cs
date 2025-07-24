@@ -1363,7 +1363,9 @@ string rawMaterialName)
             float revenueAtRisk = unitsAtRisk * averageSellingPrice;
             float stockoutPenalty = unitsAtRisk * request.StockoutPenaltyRate;
 
-            // Convert INR to USD (example rate: 1 USD = 83 INR)
+            //To do:
+            // Handle currency conversion
+            // For now, Converting INR to USD (example rate: 1 USD = 83 INR) to match with ICA response.
             const float inrToUsd = 83.0f;
             float revenueAtRiskUSD = revenueAtRisk / inrToUsd;
             float stockoutPenaltyUSD = stockoutPenalty / inrToUsd;
