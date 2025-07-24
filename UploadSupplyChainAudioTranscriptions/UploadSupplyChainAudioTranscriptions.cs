@@ -973,6 +973,8 @@ string rawMaterialName)
 
 
 }
+
+
    /* string query;
     string partParamName;
     string matchClause;
@@ -1046,3 +1048,66 @@ string rawMaterialName)
         { partParamName, impactPartNumber }
     };
    */
+
+
+    [FunctionName("CalculateSupplyChainRisk")]
+    public async Task<IActionResult> CalculateSupplyChainRisk(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req)
+    {
+        _logger.LogInformation("Risk calculation request received.");
+
+        string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+        RiskCalculationRequest request;
+
+        try
+        {
+            request = JsonConvert.DeserializeObject<RiskCalculationRequest>(requestBody);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Invalid JSON input: {ex.Message}");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        // Use Neo4jService to get demand quantity and average selling price
+        var neo4jService = new UploadSupplyChainAudioTranscriptions.Services.Neo4jService();
+        int demandQuantity = 0;
+        float averageSellingPrice = 0;
+        try
+        {
+            // To do:
+            // These values have to be parameterized as needed
+            string material = "HYUNDAI-VERNA-2025";
+            string plant = "CHN-PLANT-01";
+            string periodStart = "2025-W27";
+            string periodEnd = "2025-W30";
+            string supplierContains = "OEM";
+            demandQuantity = await neo4jService.GetDemandQuantityAsync(material, plant, periodStart, periodEnd);
+            averageSellingPrice = await neo4jService.GetAverageSellingPriceAsync(material, supplierContains);
+
+            if (request.SolutionCoverageQuantity < 0)
+                throw new ArgumentException("Coverage quantity must be non-negative.");
+            if (averageSellingPrice < 0)
+                throw new ArgumentException("Average selling price cannot be negative.");
+            if (request.StockoutPenaltyRate < 0)
+                throw new ArgumentException("Stockout penalty rate cannot be negative.");
+
+            int unitsAtRisk = demandQuantity - request.SolutionCoverageQuantity;
+            float revenueAtRisk = unitsAtRisk * averageSellingPrice;
+            float stockoutPenalty = unitsAtRisk * request.StockoutPenaltyRate;
+
+            var response = new RiskCalculationResponse
+            {
+                UnitsAtRisk = unitsAtRisk,
+                RevenueAtRisk = revenueAtRisk,
+                StockoutPenalty = stockoutPenalty
+            };
+
+            return new OkObjectResult(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error during calculation: {ex.Message}");
+            return new BadRequestObjectResult($"Error: {ex.Message}");
+        }
+    }
