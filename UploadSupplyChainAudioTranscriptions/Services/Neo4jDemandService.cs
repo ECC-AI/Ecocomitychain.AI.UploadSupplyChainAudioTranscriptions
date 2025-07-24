@@ -27,7 +27,14 @@ namespace UploadSupplyChainAudioTranscriptions.Services
             var session = driver.AsyncSession();
             try
             {
-                var cypher = @"MATCH (sd:MRPSupplyDemand)\nWHERE sd.Material = $material AND sd.MRPPlant = $plant AND sd.PeriodOrSegment >= $periodStart AND sd.PeriodOrSegment <= $periodEnd\nRETURN sum(sd.MRPElementOpenQuantity) AS totalDemand";
+                var cypher = @"
+                                MATCH (sd:MRPSupplyDemand) 
+                                WHERE sd.Material = $material AND 
+                                sd.MRPPlant = $plant AND 
+                                sd.PeriodOrSegment >= $periodStart AND 
+                                sd.PeriodOrSegment <= $periodEnd
+                                RETURN sum(sd.MRPElementOpenQuantity) AS totalDemand
+                            ";
                 var parameters = new { material, plant, periodStart, periodEnd };
                 var cursor = await session.RunAsync(cypher, parameters);
                 var results = await cursor.ToListAsync();
@@ -54,7 +61,12 @@ namespace UploadSupplyChainAudioTranscriptions.Services
             var session = driver.AsyncSession();
             try
             {
-                var cypher = @"MATCH (pc:PurchaseContract)-[:HAS_CONTRACT_ITEM]->(pci:PurchaseContractItem)\nWHERE pc.Supplier CONTAINS $supplierContains AND pci.Material = $material\nRETURN avg(pc.PurchaseContractTargetAmount) AS average_target_amount";
+                var cypher = @"
+                                MATCH (pc:PurchaseContract)-[:HAS_CONTRACT_ITEM]->(pci:PurchaseContractItem)
+                                WHERE pc.Supplier CONTAINS $supplierContains AND 
+                                pci.Material = $material
+                                RETURN avg(pc.PurchaseContractTargetAmount) AS average_target_amount
+                            ";
                 var parameters = new { material, supplierContains };
                 var cursor = await session.RunAsync(cypher, parameters);
                 var results = await cursor.ToListAsync();
