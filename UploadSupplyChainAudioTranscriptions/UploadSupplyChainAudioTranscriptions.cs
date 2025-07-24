@@ -1397,7 +1397,6 @@ string rawMaterialName)
      { "material", material },
      { partParamName, impactPartNumber }
  };
-*/
 #endregion
     // Usage example:
     var parameters = new Dictionary<string, object>
