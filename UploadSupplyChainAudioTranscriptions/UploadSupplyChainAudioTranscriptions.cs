@@ -419,8 +419,7 @@ string rawMaterialName)
             ]
         }
     ]
-}
-";
+}";
 
         return new OkObjectResult(result);
 
@@ -429,7 +428,6 @@ string rawMaterialName)
 
     [Function("QueryRawMaterialGraph2")]
     public async Task<IActionResult> QueryNeo4jByRawMaterialAsync2(
-
 [HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial2/{rawMaterialName}")] HttpRequest req,
 string rawMaterialName)
     {
