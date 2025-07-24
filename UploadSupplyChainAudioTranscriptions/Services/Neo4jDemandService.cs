@@ -30,7 +30,8 @@ namespace UploadSupplyChainAudioTranscriptions.Services
                 var cypher = @"MATCH (sd:MRPSupplyDemand)\nWHERE sd.Material = $material AND sd.MRPPlant = $plant AND sd.PeriodOrSegment >= $periodStart AND sd.PeriodOrSegment <= $periodEnd\nRETURN sum(sd.MRPElementOpenQuantity) AS totalDemand";
                 var parameters = new { material, plant, periodStart, periodEnd };
                 var cursor = await session.RunAsync(cypher, parameters);
-                var result = await cursor.SingleOrDefaultAsync();
+                var results = await cursor.ToListAsync();
+                var result = results.SingleOrDefault();
                 if (result != null && result["totalDemand"] != null && int.TryParse(result["totalDemand"].ToString(), out int totalDemand))
                 {
                     demandQuantity = totalDemand;
@@ -56,7 +57,8 @@ namespace UploadSupplyChainAudioTranscriptions.Services
                 var cypher = @"MATCH (pc:PurchaseContract)-[:HAS_CONTRACT_ITEM]->(pci:PurchaseContractItem)\nWHERE pc.Supplier CONTAINS $supplierContains AND pci.Material = $material\nRETURN avg(pc.PurchaseContractTargetAmount) AS average_target_amount";
                 var parameters = new { material, supplierContains };
                 var cursor = await session.RunAsync(cypher, parameters);
-                var result = await cursor.SingleOrDefaultAsync();
+                var results = await cursor.ToListAsync();
+                var result = results.SingleOrDefault();
                 if (result != null && result["average_target_amount"] != null && float.TryParse(result["average_target_amount"].ToString(), out float avg))
                 {
                     avgPrice = avg;
