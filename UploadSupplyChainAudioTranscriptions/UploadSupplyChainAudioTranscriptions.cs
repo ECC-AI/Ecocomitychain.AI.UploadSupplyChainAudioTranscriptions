@@ -1337,7 +1337,7 @@ string rawMaterialName)
         }
 
         // Use Neo4jService to get demand quantity and average selling price
-        var neo4jService = new UploadSupplyChainAudioTranscriptions.Services.Neo4jService();
+        var neo4jService = new Services.Neo4jService();
         int demandQuantity = 0;
         float averageSellingPrice = 0;
         try
