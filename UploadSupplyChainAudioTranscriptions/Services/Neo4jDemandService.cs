@@ -71,4 +71,5 @@ namespace UploadSupplyChainAudioTranscriptions.Services
             return avgPrice;
         }
     }
+    
 }
