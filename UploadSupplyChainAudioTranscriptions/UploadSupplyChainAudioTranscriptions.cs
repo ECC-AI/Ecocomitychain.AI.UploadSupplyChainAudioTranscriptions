@@ -1373,8 +1373,8 @@ string rawMaterialName)
             var response = new RiskCalculationResponse
             {
                 UnitsAtRisk = unitsAtRisk,
-                RevenueAtRiskUSD = revenueAtRiskUSD,
-                StockoutPenaltyUSD = stockoutPenaltyUSD
+                RevenueAtRisk = revenueAtRiskUSD,
+                StockoutPenalty = stockoutPenaltyUSD
             };
 
             return new OkObjectResult(response);
