@@ -1370,10 +1370,13 @@ string rawMaterialName)
             float revenueAtRiskUSD = revenueAtRisk / inrToUsd;
             float stockoutPenaltyUSD = stockoutPenalty / inrToUsd;
 
+            // Convert revenueAtRiskUSD to millions
+            float revenueAtRiskUSD_Million = revenueAtRiskUSD / 1_000_000f;
+
             var response = new RiskCalculationResponse
             {
                 UnitsAtRisk = unitsAtRisk,
-                RevenueAtRisk = revenueAtRiskUSD,
+                RevenueAtRisk = revenueAtRiskUSD_Million,
                 StockoutPenalty = stockoutPenaltyUSD
             };
 
