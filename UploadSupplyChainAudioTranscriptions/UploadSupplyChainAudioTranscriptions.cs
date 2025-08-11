@@ -295,6 +295,61 @@ public class UploadSupplyChainAudioTranscriptions
         }
     }
 
+    [Function("GetSupplyChainAudioTranscriptionsBySupplierIdAndStage")]
+    public async Task<IActionResult> GetBySupplierIdAndStage(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}/stage/{stage}")] HttpRequest req,
+    string supplierId,
+    string stage)
+    {
+        _logger.LogInformation($"Retrieving supply chain audio transcription for SupplierID: {supplierId} and Stage: {stage}");
+
+        if (string.IsNullOrWhiteSpace(supplierId))
+        {
+            return new BadRequestObjectResult("SupplierID is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(stage))
+        {
+            return new BadRequestObjectResult("Stage is required.");
+        }
+
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
+            var tableClient = storageAccount.CreateCloudTableClient();
+            var table = tableClient.GetTableReference("SCAudioTranscriptions");
+            await table.CreateIfNotExistsAsync();
+
+            var supplierFilter = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, supplierId);
+            var stageFilter = TableQuery.GenerateFilterCondition("Stage", QueryComparisons.Equal, stage);
+            var combinedFilter = TableQuery.CombineFilters(supplierFilter, TableOperators.And, stageFilter);
+
+            var query = new TableQuery<SupplyChainData>().Where(combinedFilter).Take(1);
+
+            var segment = await table.ExecuteQuerySegmentedAsync(query, null);
+            var result = segment.Results.FirstOrDefault();
+
+            if (result == null)
+            {
+                return new NotFoundObjectResult($"No record found for SupplierID: {supplierId} and Stage: {stage}");
+            }
+
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading from Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
     [Function("QueryRawMaterialGraph")]
     public async Task<IActionResult> QueryNeo4jByRawMaterialAsync(
 [HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/{rawMaterialName}")] HttpRequest req,
