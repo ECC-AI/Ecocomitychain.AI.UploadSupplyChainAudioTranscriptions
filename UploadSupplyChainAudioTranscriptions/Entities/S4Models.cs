@@ -100,4 +100,15 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
     {
         public SupplierTimelineData SupplierTimeline { get; set; } = new();
     }
+
+    public class ImpactedNodeCount
+    {
+        public int ComponentRawMaterialCount { get; set; }
+        public int ComponentCount { get; set; }
+        public int BomSubItemCount { get; set; }
+        public int BomItemCount { get; set; }
+        public int MaterialBOMCount { get; set; }
+        public int RelationshipCount { get; set; }
+        public string RawMaterialName { get; set; }
+    }
 }

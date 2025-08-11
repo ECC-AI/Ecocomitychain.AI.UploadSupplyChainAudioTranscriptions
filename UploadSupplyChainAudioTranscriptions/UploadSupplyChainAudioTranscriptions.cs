@@ -662,6 +662,97 @@ string rawMaterialName)
         }
     }
 
+    [Function("QueryImpactedNodeCount")]
+    public async Task<IActionResult> QueryRawMaterialGraphCountAsync(
+[HttpTrigger(AuthorizationLevel.Function, "get", Route = "rawmaterial/count/{impactedNode}")] HttpRequest req,
+string impactedNode)
+    {
+
+        if (string.IsNullOrWhiteSpace(impactedNode))
+        {
+            return new BadRequestObjectResult("Missing or invalid 'impactedNode' in route.");
+        }
+
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+
+        if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
+        {
+            _logger.LogError("Neo4j connection information is missing in environment variables.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
+        var session = driver.AsyncSession();
+
+        var query = @"
+                    MATCH (crm:ComponentRawMaterial {Name: 'Neodymium Magnet'})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
+                    <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
+                    <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
+                    <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
+                    RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+                    ";
+
+        try
+        {
+            var cursor = await session.RunAsync(query);
+            var records = await cursor.ToListAsync();
+
+            // Count unique nodes by type
+            var uniqueComponentRawMaterials = records
+                .Select(r => r["crm"].As<INode>().Id)
+                .Distinct()
+                .Count();
+
+            var uniqueComponents = records
+                .Select(r => r["c"].As<INode>().Id)
+                .Distinct()
+                .Count();
+
+            var uniqueBomSubItems = records
+                .Select(r => r["bsi"].As<INode>().Id)
+                .Distinct()
+                .Count();
+
+            var uniqueBomItems = records
+                .Select(r => r["bi"].As<INode>().Id)
+                .Distinct()
+                .Count();
+
+            var uniqueMaterialBOMs = records
+                .Select(r => r["mb"].As<INode>().Id)
+                .Distinct()
+                .Count();
+
+            var totalRelationships = records.Count * 4; // Each record has 4 relationships (r1, r2, r3, r4)
+
+            var result = new ImpactedNodeCount
+            {
+                ComponentRawMaterialCount = uniqueComponentRawMaterials,
+                ComponentCount = uniqueComponents,
+                BomSubItemCount = uniqueBomSubItems,
+                BomItemCount = uniqueBomItems,
+                MaterialBOMCount = uniqueMaterialBOMs,
+                RelationshipCount = totalRelationships,
+                RawMaterialName = impactedNode
+            };
+
+            _logger.LogInformation($"Found {uniqueComponentRawMaterials} ComponentRawMaterials, {uniqueComponents} Components, {uniqueBomSubItems} BomSubItems, {uniqueBomItems} BomItems, {uniqueMaterialBOMs} MaterialBOMs for impacted node: {impactedNode}");
+
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while querying raw material graph count");
+            return new StatusCodeResult(500);
+        }
+        finally
+        {
+            await session.CloseAsync();
+        }
+    }
+
     [Function("GetSupplierTimeline")]
     public async Task<IActionResult> GetSupplierTimeline(
             [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
