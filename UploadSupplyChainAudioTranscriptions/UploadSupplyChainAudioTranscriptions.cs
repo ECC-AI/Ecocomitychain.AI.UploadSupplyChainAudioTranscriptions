@@ -295,22 +295,22 @@ public class UploadSupplyChainAudioTranscriptions
         }
     }
 
-    [Function("GetSupplyChainAudioTranscriptionsBySupplierIdAndStage")]
-    public async Task<IActionResult> GetBySupplierIdAndStage(
-    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}/stage/{stage}")] HttpRequest req,
+    [Function("GetSupplyChainAudioTranscriptionsBySupplierIdAndStatus")]
+    public async Task<IActionResult> GetBySupplierIdAndStatus(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/supplier/{supplierId}/status/{status}")] HttpRequest req,
     string supplierId,
-    string stage)
+    string status)
     {
-        _logger.LogInformation($"Retrieving supply chain audio transcription for SupplierID: {supplierId} and Stage: {stage}");
+        _logger.LogInformation($"Retrieving supply chain audio transcription for SupplierID: {supplierId} and Status: {status}");
 
         if (string.IsNullOrWhiteSpace(supplierId))
         {
             return new BadRequestObjectResult("SupplierID is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(stage))
+        if (string.IsNullOrWhiteSpace(status))
         {
-            return new BadRequestObjectResult("Stage is required.");
+            return new BadRequestObjectResult("Status is required.");
         }
 
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
@@ -328,8 +328,8 @@ public class UploadSupplyChainAudioTranscriptions
             await table.CreateIfNotExistsAsync();
 
             var supplierFilter = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, supplierId);
-            var stageFilter = TableQuery.GenerateFilterCondition("Stage", QueryComparisons.Equal, stage);
-            var combinedFilter = TableQuery.CombineFilters(supplierFilter, TableOperators.And, stageFilter);
+            var statusFilter = TableQuery.GenerateFilterCondition("Status", QueryComparisons.Equal, status);
+            var combinedFilter = TableQuery.CombineFilters(supplierFilter, TableOperators.And, statusFilter);
 
             var query = new TableQuery<SupplyChainData>().Where(combinedFilter).Take(1);
 
@@ -338,7 +338,7 @@ public class UploadSupplyChainAudioTranscriptions
 
             if (result == null)
             {
-                return new NotFoundObjectResult($"No record found for SupplierID: {supplierId} and Stage: {stage}");
+                return new NotFoundObjectResult($"No record found for SupplierID: {supplierId} and Status: {status}");
             }
 
             return new OkObjectResult(result);
