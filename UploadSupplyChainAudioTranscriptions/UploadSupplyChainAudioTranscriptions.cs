@@ -701,31 +701,30 @@ string impactedNode)
 
             // Count unique nodes by type
             var uniqueComponentRawMaterials = records
-                .Select(r => r["crm"].As<INode>().Id)
+                .Select(r => r["crm"].As<INode>().ElementId)
                 .Distinct()
                 .Count();
 
             var uniqueComponents = records
-                .Select(r => r["c"].As<INode>().Id)
+                .Select(r => r["c"].As<INode>().ElementId)
                 .Distinct()
                 .Count();
 
             var uniqueBomSubItems = records
-                .Select(r => r["bsi"].As<INode>().Id)
+                .Select(r => r["bsi"].As<INode>().ElementId)
                 .Distinct()
                 .Count();
 
             var uniqueBomItems = records
-                .Select(r => r["bi"].As<INode>().Id)
+                .Select(r => r["bi"].As<INode>().ElementId)
                 .Distinct()
                 .Count();
 
             var uniqueMaterialBOMs = records
-                .Select(r => r["mb"].As<INode>().Id)
+                .Select(r => r["mb"].As<INode>().ElementId)
                 .Distinct()
                 .Count();
 
-            var totalRelationships = records.Count * 4; // Each record has 4 relationships (r1, r2, r3, r4)
 
             var result = new ImpactedNodeCount
             {
@@ -734,7 +733,6 @@ string impactedNode)
                 BomSubItemCount = uniqueBomSubItems,
                 BomItemCount = uniqueBomItems,
                 MaterialBOMCount = uniqueMaterialBOMs,
-                RelationshipCount = totalRelationships,
                 RawMaterialName = impactedNode
             };
 
