@@ -341,7 +341,16 @@ public class UploadSupplyChainAudioTranscriptions
                 return new NotFoundObjectResult($"No record found for SupplierID: {supplierId} and Status: {status}");
             }
 
-            return new OkObjectResult(result);
+            // Return as a view model for UI pop
+            var viewModel = new {
+                Supplier = result.SupplierID,
+                Tier = result.Tier,
+                Stage = result.Stage,
+                Material = result.Material,
+                RippleEffect = result.RippleEffect
+            };
+
+            return new OkObjectResult(viewModel);
         }
         catch (Exception ex)
         {
