@@ -832,105 +832,105 @@ string impactedNode)
                         Tier = "Tier 4",
                         SupplierName = "T4_Magnet_Neo",
                         StartDate = "2025-03-31",
-                        EndDate = "2025-04-27"
+                        EndDate = "2025-05-04"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3_EPS_Comp",
-                        StartDate = "2025-04-28",
-                        EndDate = "2025-05-11"
+                        StartDate = "2025-05-05",
+                        EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3_Speaker_Dashboard_Comp",
-                        StartDate = "2025-04-28",
-                        EndDate = "2025-05-11"
+                        StartDate = "2025-05-05",
+                        EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3_Airblower_Comp",
-                        StartDate = "2025-04-28",
-                        EndDate = "2025-05-11"
+                        StartDate = "2025-05-05",
+                        EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 3",
                         SupplierName = "T3_Fan_Motor_Comp",
-                        StartDate = "2025-04-28",
-                        EndDate = "2025-05-11"
+                        StartDate = "2025-05-05",
+                        EndDate = "2025-05-25"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2_Suspension_Subassm",
-                        StartDate = "2025-05-12",
-                        EndDate = "2025-05-25"
+                        StartDate = "2025-06-02",
+                        EndDate = "2025-06-22"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2_EPS_Subassm",
-                        StartDate = "2025-05-12",
-                        EndDate = "2025-05-25"
+                        StartDate = "2025-06-02",
+                        EndDate = "2025-06-22"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2_Int.Electronics_Subassm",
-                        StartDate = "2025-05-12",
-                        EndDate = "2025-05-25"
+                        StartDate = "2025-06-02",
+                        EndDate = "2025-06-22"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 2",
                         SupplierName = "T2_Airblower_Subassm",
-                        StartDate = "2025-05-12",
-                        EndDate = "2025-05-25"
+                        StartDate = "2025-06-02",
+                        EndDate = "2025-06-22"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1_Chassis_Assm",
-                        StartDate = "2025-05-26",
-                        EndDate = "2025-06-08"
+                        StartDate = "2025-06-23",
+                        EndDate = "2025-07-13"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1_Suspension_Assm",
-                        StartDate = "2025-05-26",
-                        EndDate = "2025-06-08"
+                        StartDate = "2025-06-23",
+                        EndDate = "2025-07-13"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1_InteriorElectronics_Assm",
-                        StartDate = "2025-05-26",
-                        EndDate = "2025-06-08"
+                        StartDate = "2025-06-23",
+                        EndDate = "2025-07-13"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "Tier 1",
                         SupplierName = "T1_Interior2_Assm",
-                        StartDate = "2025-05-26",
-                        EndDate = "2025-06-08"
+                        StartDate = "2025-06-23",
+                        EndDate = "2025-07-13"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "OEM",
                         SupplierName = "Chennai Plant",
-                        StartDate = "2025-06-09",
-                        EndDate = "2025-06-22"
+                        StartDate = "2025-07-14",
+                        EndDate = "2025-08-03"
                     },
                     new SupplierTimelineItem
                     {
                         Tier = "OEM",
                         SupplierName = "HYD Plant",
-                        StartDate = "2025-06-09",
-                        EndDate = "2025-06-22"
+                        StartDate = "2025-07-14",
+                        EndDate = "2025-08-03"
                     }
                 }
             }
