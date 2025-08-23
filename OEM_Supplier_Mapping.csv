@@ -1,0 +1,18 @@
+OEM_PartNumber,OEM_PartName,SupplierId,SupplierPartNumber,SupplierPartName
+CHASSIS-SUSP-I20-01,Chassis Assembly,Supp-0a47,T1_Chassis_Assm,Chassis Assembly
+INTELECT-HI20-01,Interior Electronics Assembly,Supp-ee42,T1_IntElect_Assm,Interior Electronics Assembly
+INTERIOR-HI20-01,Interior Assembly (Secondary),Supp-843e,T1_Interior2_Assm,Interior Assembly (Secondary)
+CHSUSP-HI20-01,Suspension Assembly,Supp-1bd5,T1_Suspension_Assm,Suspension Assembly
+SPEAKERS-HI20-01,Speakers Subassembly,Supp-1bd5,T2_IntElect_Sub,Interior Electronics Subassembly
+AIRBLOWER-HI20-01,Air Blower Subassembly,Supp-41dd,T2_Airblower_Sub,Air Blower Subassembly
+EPSMOTOR-HI20-01,EPS Subassembly,Supp-cd20,T2_EPS_Sub,EPS Subassembly
+DASHBOARDCONSOLE-CENTERCONSOLE-004,Interior Electronics Subassembly,Supp-f2e4,T2_IntElect_Sub,Interior Electronics Subassembly
+SUSPENSION-I20-01,Suspension Subassembly,Supp-6a27,T2_Suspension_Sub,Suspension Subassembly
+PART-8089,Air Blower Motor,Supp-b04f,T3_Airblower_Comp,Air Blower Component
+PART-1718,Electronic Power Steering (EPS) Motor,Supp-a026,T3_EPS_Comp,EPS Component
+PART-5410,Speakers,SUP-003,T3_Speaker_Dash,Speaker Dashboard Component
+RM-NEO,Neodymium Magnet,Supp-37a4,T4_Magnet_Neo,Neodymium Magnet
+PART-9015,subd_fan_motor,Supp-7f2c,T3_Fan_Motor_Comp,Fan Motor Component
+PART-9016,subd_fan_motor001,Supp-7f2c,T3_Fan_Motor_Comp_1,Fan Motor Component
+PART-9017,subd_fan_motor002,Supp-7f2c,T3_Fan_Motor_Comp_2,Fan Motor Component
+PART-9018,subd_fan_motor003,Supp-7f2c,T3_Fan_Motor_Comp_3,Fan Motor Component

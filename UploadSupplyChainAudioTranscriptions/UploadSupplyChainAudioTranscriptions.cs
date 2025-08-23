@@ -1,5 +1,8 @@
-﻿using CsvHelper;
+﻿using Azure;
+using CsvHelper;
+using CsvHelper.Configuration;
 using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities;
+using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Map;
 using Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -9,11 +12,11 @@ using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
 using Neo4j.Driver;
-using System.Text;
+using Newtonsoft.Json;
 using System.Globalization;
+using System.Text;
 using UploadSupplyChainAudioTranscriptions.Entities;
 using UploadSupplyChainAudioTranscriptions.Services;
-using Newtonsoft.Json;
 
 
 
@@ -750,6 +753,7 @@ string impactedNode)
         var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
         var session = driver.AsyncSession();
 
+        // To-do: Change the query to use the impactedNode parameter
         var query = @"
                     MATCH (crm:ComponentRawMaterial {Name: 'Neodymium Magnet'})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
                     <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
@@ -1133,12 +1137,12 @@ string impactedNode)
     public async Task<IActionResult> CreateSupplierProfileAsync(
         [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
     {
-        _logger.LogInformation("Creating supplier profile.");
+        _logger.LogInformation("Creating supplier profiles.");
 
-        SupplierProfileCreationRequestModel? supplierProfileRequest;
+        List<SupplierProfileCreationRequestModel>? supplierProfileRequests;
         try
         {
-            supplierProfileRequest = await System.Text.Json.JsonSerializer.DeserializeAsync<SupplierProfileCreationRequestModel>(
+            supplierProfileRequests = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplierProfileCreationRequestModel>>(
                 req.Body, new System.Text.Json.JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -1150,140 +1154,265 @@ string impactedNode)
             return new BadRequestObjectResult("Invalid JSON format.");
         }
 
-        if (supplierProfileRequest == null || string.IsNullOrWhiteSpace(supplierProfileRequest.SupplierName))
+        if (supplierProfileRequests == null || supplierProfileRequests.Count == 0)
         {
-            return new BadRequestObjectResult("SupplierName and Tier are required.");
+            return new BadRequestObjectResult("At least one supplier profile is required.");
         }
 
-        string supplierId = $"Supp-{Guid.NewGuid().ToString("N")[..4]}";
-        string plantId = $"Plant-{Guid.NewGuid().ToString("N")[..4]}";
-        var profileEntity = new SupplierProfileBase
-        {
-            SupplierId = supplierId,
-            SupplierName = supplierProfileRequest.SupplierName,
-            Timestamp = DateTimeOffset.UtcNow
-        };
+        var responses = new List<SupplierProfileCreationResponseModel>();
+        var errors = new List<string>();
 
-        var supplierPlantEntity = new SupplierPlant
+        foreach (var supplierProfileRequest in supplierProfileRequests)
         {
-            SupplierId = supplierId,
-            PlantId = plantId,
-            Timestamp = DateTimeOffset.UtcNow
-        };
-
-        int partCount = supplierProfileRequest.PartNumbers.Count;
-        List<SupplierPartDetail> supplierPartDetailColl = new List<SupplierPartDetail>();
-        if (partCount > 0)
-        {
-            supplierProfileRequest.PartNumbers.ForEach(part =>
+            try
             {
-                var supplierPartDetails = new SupplierPartDetail
+                if (string.IsNullOrWhiteSpace(supplierProfileRequest.SupplierName))
                 {
-                    PartNumber = part,
-                    SupplierId = supplierId
+                    errors.Add($"SupplierName is required for one of the supplier profiles.");
+                    continue;
+                }
+
+                string supplierId = $"Supp-{Guid.NewGuid().ToString("N")[..4]}";
+                string plantId = $"Plant-{Guid.NewGuid().ToString("N")[..4]}";
+                var profileEntity = new SupplierProfileBase
+                {
+                    SupplierId = supplierId,
+                    SupplierName = supplierProfileRequest.SupplierName,
+                    Timestamp = DateTimeOffset.UtcNow
                 };
-                supplierPartDetailColl.Add(supplierPartDetails);
-            });
+
+                var supplierPlantEntity = new SupplierPlant
+                {
+                    SupplierId = supplierId,
+                    PlantId = plantId,
+                    Timestamp = DateTimeOffset.UtcNow
+                };
+
+                int partCount = supplierProfileRequest.PartNumbers.Count;
+                List<SupplierPartDetail> supplierPartDetailColl = new List<SupplierPartDetail>();
+                if (partCount > 0)
+                {
+                    supplierProfileRequest.PartNumbers.ForEach(part =>
+                    {
+                        var supplierPartDetails = new SupplierPartDetail
+                        {
+                            PartNumber = part,
+                            SupplierId = supplierId
+                        };
+                        supplierPartDetailColl.Add(supplierPartDetails);
+                    });
+                }
+
+                try
+                {
+                    await _tableService.AddEntityAsync("SupplierProfiles", profileEntity);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error writing supplier profile to Azure Table Storage for supplier: {supplierProfileRequest.SupplierName}");
+                    errors.Add($"Failed to create profile for supplier: {supplierProfileRequest.SupplierName}");
+                    continue;
+                }
+
+                try
+                {
+                    await _tableService.AddEntityAsync("SupplierPlants", supplierPlantEntity);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error writing supplier plant details to Azure Table Storage for supplier: {supplierProfileRequest.SupplierName}");
+                    errors.Add($"Failed to create plant details for supplier: {supplierProfileRequest.SupplierName}");
+                    continue;
+                }
+
+                try
+                {
+                    await _tableService.AddEntitiesAsync("SupplierPartDetails", supplierPartDetailColl);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error writing supplier part numbers to Azure Table Storage for supplier: {supplierProfileRequest.SupplierName}");
+                    errors.Add($"Failed to create part details for supplier: {supplierProfileRequest.SupplierName}");
+                    continue;
+                }
+
+                // Update OemSupplierMapping table with the new supplier ID based on supplier part numbers
+                try
+                {
+                    int updatedMappings = 0;
+                    foreach (var partNumber in supplierProfileRequest.PartNumbers)
+                    {
+                        try
+                        {
+                            // Query for existing mappings with this supplier part number
+                            string filter = $"SupplierPartNumber eq '{partNumber}'";
+                            var existingMappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
+                            
+                            foreach (var mapping in existingMappings)
+                            {
+                                // Update the supplier ID in the existing mapping
+                                var updatedMapping = new OemSupplierMapping
+                                {
+                                    PartitionKey = mapping.PartitionKey,
+                                    RowKey = supplierId, // Update with new supplier ID
+                                    OemPartNumber = mapping.OemPartNumber,
+                                    OemPartName = mapping.OemPartName,
+                                    SupplierId = supplierId,
+                                    SupplierPartNumber = mapping.SupplierPartNumber,
+                                    SupplierPartName = mapping.SupplierPartName,
+                                    Timestamp = DateTimeOffset.UtcNow,
+                                    ETag = Azure.ETag.All // Allow overwrite
+                                };
+                                
+                                await _tableService.UpsertEntityAsync("OemSupplierMapping", updatedMapping);
+                                updatedMappings++;
+                                _logger.LogInformation($"Updated OEM mapping for part {partNumber} with supplier ID {supplierId}");
+                            }
+                        }
+                        catch (Exception partEx)
+                        {
+                            _logger.LogWarning(partEx, $"Failed to update OEM mapping for part number {partNumber} for supplier {supplierProfileRequest.SupplierName}");
+                            // Continue processing other parts even if one fails
+                        }
+                    }
+                    
+                    _logger.LogInformation($"Updated {updatedMappings} OEM supplier mappings for supplier {supplierProfileRequest.SupplierName}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error updating OEM supplier mappings for supplier: {supplierProfileRequest.SupplierName}");
+                    // Note: This is not added to errors list as it's a supplementary operation
+                    // The supplier profile creation should still be considered successful
+                }
+
+                var profileCreationResponse = new SupplierProfileCreationResponseModel
+                {
+                    SupplierId = supplierId,
+                    PlantId = plantId,
+                    SupplierName = supplierProfileRequest.SupplierName
+                };
+
+                // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
+                // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
+                // To-Do: The leadtime is hardcoded for now (20 days ~ 3 weeks). This has to be gotten from the supplier, through progressive profiling
+                // Note: The supplier might be having different lead times for different parts and the plants they supply to
+                // To-Do: Pertaining to the issue mentioned in the previous point, we need to add a 3 way connection between the part#, deliveryPlant and the leadtime value
+                await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
+                {
+                    LeadTimeInDays = 20,
+                    PartNumbers = supplierProfileRequest.PartNumbers,
+                    SupplierId = supplierId,
+                    SupplierName = supplierProfileRequest.SupplierName,
+                    Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier) ? "Tier-N" : supplierProfileRequest.Tier
+                });
+
+                responses.Add(profileCreationResponse);
+                _logger.LogInformation($"Successfully created supplier profile for: {supplierProfileRequest.SupplierName}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Unexpected error processing supplier profile for: {supplierProfileRequest?.SupplierName ?? "Unknown"}");
+                errors.Add($"Unexpected error processing supplier: {supplierProfileRequest?.SupplierName ?? "Unknown"}");
+            }
         }
 
-
-        try
+        var result = new
         {
-            await _tableService.AddEntityAsync("SupplierProfiles", profileEntity);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error writing supplier profile to Azure Table Storage.");
-            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-        }
-
-        try
-        {
-            await _tableService.AddEntityAsync("SupplierPlants", supplierPlantEntity);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error writing supplier plant details to Azure Table Storage.");
-            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-        }
-
-        try
-        {
-            await _tableService.AddEntitiesAsync("SupplierPartDetails", supplierPartDetailColl);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error writing supplier part numbers to Azure Table Storage.");
-            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-        }
-
-        SupplierProfileCreationResponseModel profilecreationResponse = new SupplierProfileCreationResponseModel
-        {
-            SupplierId = supplierId,
-            PlantId = plantId,
-            SupplierName = supplierProfileRequest.SupplierName
+            SuccessfulProfiles = responses,
+            Errors = errors,
+            TotalRequested = supplierProfileRequests.Count,
+            SuccessfulCount = responses.Count,
+            ErrorCount = errors.Count,
+            Message = $"Processed {responses.Count} out of {supplierProfileRequests.Count} supplier profiles successfully."
         };
 
-        // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
-        // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
-        // To-Do: The leadtime is hardcoded for now (20 days ~ 3 weeks). This has to be gotten from the supplier, through progressive profiling
-        // Note: The supplier might be having different lead times for different parts and the plants they supply to
-        // To-Do: Pertaining to the issue mentioned in the previous point, we need to add a 3 way connection between the part#, deliveryPlant and the leadtime value
-        await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
+        if (errors.Count > 0 && responses.Count == 0)
         {
-            LeadTimeInDays = 20, 
-            PartNumbers = supplierProfileRequest.PartNumbers,
-            SupplierId = supplierId,
-            SupplierName = supplierProfileRequest.SupplierName,
-            Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier)? "Tier-N" : supplierProfileRequest.Tier
-        });
+            return new BadRequestObjectResult(result);
+        }
+        else if (errors.Count > 0)
+        {
+            return new ObjectResult(result) { StatusCode = 207 }; // Multi-Status
+        }
 
-        return new OkObjectResult(new { profilecreationResponse, message = "Supplier profile created successfully." });
+        return new OkObjectResult(result);
     }
 
-    // To-Do: This method needs to moved to Core + Infra and called from a function app that listens to an Azure Storage Queue
     private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
+        if (subtierSupplier?.PartNumbers == null || subtierSupplier.PartNumbers.Count == 0)
+        {
+            _logger.LogWarning("No part numbers provided for supplier {SupplierId}.", subtierSupplier?.SupplierId);
+            return false;
+        }
 
-        // Note: A new part node is being created that corresponds to the suppliers local part naming convention
-        // To-Do: An edge needs to be created that connects the supplier with the appropriate BOM node.
-        // To-Do: This can be implemented only if we have a process that does the mapping between the local and OEM part numbers. This is yet to be figured out
+        _logger.LogInformation("Creating Neo4j graph nodes for supplier {SupplierId} with {PartCount} parts",
+            subtierSupplier.SupplierId, subtierSupplier.PartNumbers.Count);
 
-        // Note: This involves some amount of complexity - Depending on the tier of the supplier we select 
-        // BomItem, BomSubitem, Component or ComponentRawMaterial in the node filer condition
-        // This will follow the same logic as the REGION code that is commented for now
+        // Build supplierPart -> oemPart map from Azure Table "OemSupplierMapping"
+        var oemMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var spn in subtierSupplier.PartNumbers)
+        {
+            try
+            {
+                string filter = $"SupplierPartNumber eq '{spn}'";
+                var mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
 
-        // Note: This code is based on Neo4j .net driver. Lift and shift to Infra wont work
-        // To-Do : We need to change the code to use Neo4j .net client. The DTO also needs to be moved to the infra project
+                foreach (var mapping in mappings)
+                {
+                    if (!string.IsNullOrWhiteSpace(mapping.OemPartNumber))
+                    {
+                        oemMap[spn] = mapping.OemPartNumber;
+                        _logger.LogInformation("Found OEM mapping: {SupplierPart} -> {OemPart}", spn, mapping.OemPartNumber);
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Mapping lookup failed for SupplierPart {SupplierPartNumber}", spn);
+            }
+        }
 
-        // Cypher query to create SubtierSupplier node and connect part numbers as separate nodes
-        // To-Do: Enhance the query to create the supplier plant nodes (rationale: plant monitoring using Resilinc/Everstream)
+        _logger.LogInformation("Found {MappingCount} OEM mappings out of {PartCount} parts", oemMap.Count, subtierSupplier.PartNumbers.Count);
+
+        // Cypher query to create supplier and parts
         var cypher = @"
-            CREATE (s:SubtierSupplier {
-                SupplierId: $supplierId,
-                SupplierName: $supplierName,
-                LeadTimeInDays: $leadTimeInDays,
-                Tier: $supplierTier
-            })
-            WITH s
-            UNWIND $partNumbers AS partNumber
-            MERGE (p:SupplierPart {PartNumber: partNumber})
-            MERGE (s)-[:SUPPLIES]->(p)
-            RETURN s
-        ";
+    MERGE (s:SubtierSupplier { SupplierId: $supplierId })
+    SET s.SupplierName = $supplierName,
+        s.LeadTimeInDays = $leadTimeInDays,
+        s.Tier = $supplierTier,
+        s.CreatedAt = datetime(),
+        s.UpdatedAt = datetime()
+    
+    WITH s
+    UNWIND $partNumbers AS partNumber
+    MERGE (sp:SupplierPart { PartNumber: partNumber })
+    SET sp.CreatedAt = CASE WHEN sp.CreatedAt IS NULL THEN datetime() ELSE sp.CreatedAt END,
+        sp.UpdatedAt = datetime()
+    
+    WITH s, sp, partNumber
+    MERGE (s)-[r:SUPPLIES]->(sp)
+    SET r.CreatedAt = datetime()
+    
+    WITH s, collect(sp) as supplierParts, collect(partNumber) as partNumbers
+    RETURN s.SupplierId as supplierId, 
+           SIZE(supplierParts) as partsCreated,
+           partNumbers as createdPartNumbers
+    ";
 
         var parameters = new Dictionary<string, object>
-        {
-            { "supplierId", subtierSupplier.SupplierId },
-            { "supplierName", subtierSupplier.SupplierName },
-            { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
-            { "partNumbers", subtierSupplier.PartNumbers },
-            { "supplierTier", subtierSupplier.Tier }
-        };
+    {
+        { "supplierId", subtierSupplier.SupplierId },
+        { "supplierName", subtierSupplier.SupplierName },
+        { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
+        { "partNumbers", subtierSupplier.PartNumbers },
+        { "supplierTier", subtierSupplier.Tier }
+    };
 
-        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
-        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
-        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI") ?? "neo4j+s://7c2f46c2.databases.neo4j.io";
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER") ?? "neo4j";
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
 
         if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
         {
@@ -1295,19 +1424,124 @@ string impactedNode)
         {
             using var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
             await using var session = driver.AsyncSession();
-            var result = await session.RunAsync(cypher, parameters);
-            var createdNode = await result.SingleAsync();
 
-            // Future enhancement: Add more supplier attributes and relationships as needed
+            await session.ExecuteWriteAsync(async tx =>
+            {
+                // Create supplier and supplier parts
+                var cursor = await tx.RunAsync(cypher, parameters);
+                var records = await cursor.ToListAsync();
 
-            return createdNode != null;
+                if (records.Any())
+                {
+                    var record = records.First();
+                    var partsCreated = record["partsCreated"].As<int>();
+                    var createdPartNumbers = record["createdPartNumbers"].As<List<object>>().Select(x => x.ToString()).ToList();
+                    _logger.LogInformation("Successfully created supplier {SupplierId} with {PartsCreated} parts in Neo4j: [{PartNumbers}]",
+                        subtierSupplier.SupplierId, partsCreated, string.Join(", ", createdPartNumbers));
+                }
+
+                // Connect to existing nodes instead of creating OEMPart nodes
+                if (oemMap.Any())
+                {
+                    var oemCypher = @"
+                MATCH (s:SubtierSupplier { SupplierId: $supplierId })
+                UNWIND keys($oemMap) AS supplierPartNumber
+                MATCH (sp:SupplierPart { PartNumber: supplierPartNumber })
+                WHERE (s)-[:SUPPLIES]->(sp)
+                WITH s, sp, supplierPartNumber, $oemMap[supplierPartNumber] AS oemPartNumber
+                WHERE oemPartNumber IS NOT NULL
+
+                OPTIONAL MATCH (existingNode)
+                WHERE (existingNode.Material = oemPartNumber OR existingNode.PartNumber = oemPartNumber)
+
+                WITH s, sp, supplierPartNumber, oemPartNumber, collect(existingNode) as matchingNodes
+                WHERE SIZE(matchingNodes) > 0
+
+                UNWIND matchingNodes as matchedNode
+                WITH s, sp, supplierPartNumber, oemPartNumber, matchedNode
+                WHERE matchedNode IS NOT NULL
+                MERGE (sp)-[:EQUIVALENT_TO { CreatedAt: datetime(), OemPartNumber: oemPartNumber }]->(matchedNode)
+                MERGE (s)-[:SUPPLIES_OEM_PART { via: supplierPartNumber, CreatedAt: datetime(), OemPartNumber: oemPartNumber }]->(matchedNode)
+
+                RETURN COUNT(DISTINCT matchedNode) as oemPartsLinked, 
+                       collect(DISTINCT labels(matchedNode)) as linkedNodeTypes,
+                       collect(DISTINCT coalesce(matchedNode.Material, matchedNode.PartNumber, matchedNode.Name)) as linkedNodeNames
+                ";
+
+                    var oemParameters = new Dictionary<string, object>
+                {
+                    { "supplierId", subtierSupplier.SupplierId },
+                    { "oemMap", oemMap }
+                };
+
+                    var oemCursor = await tx.RunAsync(oemCypher, oemParameters);
+                    var oemRecords = await oemCursor.ToListAsync();
+
+                    if (oemRecords.Any())
+                    {
+                        var record = oemRecords.First();
+                        var oemLinked = record["oemPartsLinked"].As<int>();
+                        var linkedNodeTypes = record["linkedNodeTypes"].As<List<object>>()
+                            .Select(x => string.Join(":", ((List<object>)x).Select(l => l.ToString())))
+                            .ToList();
+                        var linkedNodeNames = record["linkedNodeNames"].As<List<object>>()
+                            .Select(x => x?.ToString() ?? "Unknown")
+                            .ToList();
+
+                        _logger.LogInformation("Successfully linked {OemLinked} existing nodes for supplier {SupplierId}. Node types: [{NodeTypes}], Names: [{NodeNames}]",
+                            oemLinked, subtierSupplier.SupplierId, string.Join(", ", linkedNodeTypes), string.Join(", ", linkedNodeNames));
+
+                        if (oemLinked == 0)
+                        {
+                            _logger.LogWarning("No existing nodes found to link for supplier {SupplierId}. OEM part numbers searched: [{OemPartNumbers}]",
+                                subtierSupplier.SupplierId, string.Join(", ", oemMap.Values));
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("No records returned from OEM linking query for supplier {SupplierId}", subtierSupplier.SupplierId);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("No OEM mappings found for supplier {SupplierId}", subtierSupplier.SupplierId);
+                }
+            });
+
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create SubtierSupplier node in Neo4j.");
+            _logger.LogError(ex, "Failed to create supplier node and relationships in Neo4j for supplier {SupplierId}",
+                subtierSupplier.SupplierId);
             return false;
         }
     }
+
+
+
+
+    private async Task<string?> GetOemPartNumberForSupplierPartAsync(string supplierPart)
+    {
+        try
+        {
+
+            string? neo4jUri = "neo4j+s://7c2f46c2.databases.neo4j.io";
+            string? neo4jUser = "neo4j";
+            string? neo4jPassword = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
+
+
+            // Example: read from Azure Table Storage (OemSupplierMapping)
+            var entity = await _tableService.GetEntityAsync<OemSupplierMapping>("OemSupplierMapping", "Mapping", supplierPart);
+            return entity?.OemPartNumber;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"OEM mapping lookup failed for SupplierPart {supplierPart}");
+            return null;
+        }
+    }
+
 
 
 
@@ -1469,7 +1703,425 @@ string impactedNode)
         return new OkObjectResult(batchQueryResponse);
     }
 
-    
+
+    [Function("ImportLocalOemSupplierMappingCsv")]
+    public async Task<IActionResult> ImportLocalOemSupplierMappingCsvAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        _logger.LogInformation("Starting import of local OEM_Supplier_Mapping.csv file.");
+
+        string? storageConnectionString = "DefaultEndpointsProtocol=https;AccountName=scaudiotranscriptions;AccountKey=eGqgdfFK+04X2UG4Csk6f7DE4oHveQvkcHeatQD7o5L/P1UzHVz7y2g2ENrOwkq+LFQgZRuJyqk8+AStGrEDzQ==;EndpointSuffix=core.windows.net";
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("Storage connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            // Path to the CSV file in the solution folder
+            // First try to find the CSV file in the solution root directory
+            string currentDirectory = Directory.GetCurrentDirectory();
+            string csvFilePath = Path.Combine(currentDirectory, "OEM_Supplier_Mapping.csv");
+            
+            // If not found in current directory, try going up to find the solution folder
+            if (!File.Exists(csvFilePath))
+            {
+                // Look for the solution file to identify the solution root
+                string? solutionRoot = FindSolutionRoot(currentDirectory);
+                if (!string.IsNullOrEmpty(solutionRoot))
+                {
+                    csvFilePath = Path.Combine(solutionRoot, "OEM_Supplier_Mapping.csv");
+                }
+            }
+            
+            // Also try common deployment paths
+            if (!File.Exists(csvFilePath))
+            {
+                var alternativePaths = new[]
+                {
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "OEM_Supplier_Mapping.csv"),
+                    Path.Combine(Environment.CurrentDirectory, "OEM_Supplier_Mapping.csv"),
+                    Path.Combine(Directory.GetParent(currentDirectory)?.FullName ?? currentDirectory, "OEM_Supplier_Mapping.csv"),
+                    Path.Combine(Directory.GetParent(Directory.GetParent(currentDirectory)?.FullName ?? currentDirectory)?.FullName ?? currentDirectory, "OEM_Supplier_Mapping.csv")
+                };
+                
+                foreach (var altPath in alternativePaths)
+                {
+                    if (File.Exists(altPath))
+                    {
+                        csvFilePath = altPath;
+                        break;
+                    }
+                }
+            }
+            
+            _logger.LogInformation($"Attempting to read CSV file from: {csvFilePath}");
+            
+            if (!File.Exists(csvFilePath))
+            {
+                _logger.LogError($"CSV file not found at path: {csvFilePath}");
+                _logger.LogInformation($"Current directory: {currentDirectory}");
+                _logger.LogInformation($"Base directory: {AppDomain.CurrentDomain.BaseDirectory}");
+                
+                // List files in current directory for debugging
+                var filesInCurrentDir = Directory.GetFiles(currentDirectory, "*.csv", SearchOption.TopDirectoryOnly);
+                _logger.LogInformation($"CSV files in current directory: {string.Join(", ", filesInCurrentDir)}");
+                
+                return new NotFoundObjectResult($"OEM_Supplier_Mapping.csv file not found. Searched in: {csvFilePath}. Current directory: {currentDirectory}");
+            }
+
+            var mappingEntities = new List<OemSupplierMapping>();
+            
+            using var reader = new StreamReader(csvFilePath);
+            using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+            
+            csv.Context.RegisterClassMap<OemSupplierMappingMap>();
+
+            var records = csv.GetRecords<OemSupplierMapping>();
+            foreach (var record in records)
+            {
+                record.Timestamp = DateTimeOffset.UtcNow;
+                mappingEntities.Add(record);
+                _logger.LogInformation($"Parsed mapping: OEM Part {record.OemPartNumber} -> Supplier {record.SupplierId} ({record.SupplierPartNumber})");
+            }
+
+            _logger.LogInformation($"Parsed {mappingEntities.Count} OEM Supplier Mapping records from local CSV file.");
+
+            // Insert records into Azure Table Storage
+            int insertedCount = 0;
+            var errors = new List<string>();
+
+            foreach (var mapping in mappingEntities)
+            {
+                try
+                {
+                    await _tableService.AddEntityAsync("OemSupplierMapping", mapping);
+                    insertedCount++;
+                    _logger.LogInformation($"Successfully inserted mapping: {mapping.OemPartNumber} -> {mapping.SupplierId}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId}");
+                    errors.Add($"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId} - {ex.Message}");
+                }
+            }
+
+            var result = new
+            {
+                SourceFile = "OEM_Supplier_Mapping.csv",
+                TotalRecords = mappingEntities.Count,
+                SuccessfulInserts = insertedCount,
+                FailedInserts = errors.Count,
+                Errors = errors,
+                Message = $"Imported {insertedCount} out of {mappingEntities.Count} OEM Supplier Mapping records successfully from local CSV file.",
+                Details = mappingEntities.Select(m => new
+                {
+                    OemPartNumber = m.OemPartNumber,
+                    OemPartName = m.OemPartName,
+                    SupplierId = m.SupplierId,
+                    SupplierPartNumber = m.SupplierPartNumber,
+                    SupplierPartName = m.SupplierPartName
+                }).ToList()
+            };
+
+            if (errors.Count > 0 && insertedCount == 0)
+            {
+                return new BadRequestObjectResult(result);
+            }
+            else if (errors.Count > 0)
+            {
+                return new ObjectResult(result) { StatusCode = 207 }; // Multi-Status
+            }
+
+            _logger.LogInformation($"Successfully imported {insertedCount} OEM Supplier Mapping records from local CSV file.");
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing local OEM_Supplier_Mapping.csv file.");
+            var errorResult = new
+            {
+                Error = "Failed to import OEM Supplier Mapping from local CSV file",
+                ExceptionMessage = ex.Message,
+                ExceptionType = ex.GetType().FullName
+            };
+            return new ObjectResult(errorResult) { StatusCode = StatusCodes.Status500InternalServerError };
+        }
+    }
+
+
+    [Function("ImportOemSupplierMappingFromCsv")]
+    public async Task<IActionResult> ImportOemSupplierMappingFromCsvAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        _logger.LogInformation("Starting OEM Supplier Mapping import from CSV.");
+
+        if (!req.ContentType?.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase) ?? true)
+        {
+            return new BadRequestObjectResult("Content-Type must be multipart/form-data for file upload.");
+        }
+
+        var form = await req.ReadFormAsync();
+        var file = form.Files.GetFile("csvFile");
+
+        if (file == null || file.Length == 0)
+        {
+            return new BadRequestObjectResult("CSV file is required. Please upload a file with the name 'csvFile'.");
+        }
+
+        if (!file.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            return new BadRequestObjectResult("Only CSV files are supported.");
+        }
+
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("Storage connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            var mappingEntities = new List<OemSupplierMapping>();
+            
+            using var stream = file.OpenReadStream();
+            using var reader = new StreamReader(stream);
+            using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+            
+            csv.Context.RegisterClassMap<OemSupplierMappingMap>();
+
+            var records = csv.GetRecords<OemSupplierMapping>();
+            foreach (var record in records)
+            {
+                record.Timestamp = DateTimeOffset.UtcNow;
+                mappingEntities.Add(record);
+            }
+
+            _logger.LogInformation($"Parsed {mappingEntities.Count} OEM Supplier Mapping records from CSV.");
+
+            // Insert records into Azure Table Storage
+            int insertedCount = 0;
+            var errors = new List<string>();
+
+            foreach (var mapping in mappingEntities)
+            {
+                try
+                {
+                    await _tableService.AddEntityAsync("OemSupplierMapping", mapping);
+                    insertedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId}");
+                    errors.Add($"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId} - {ex.Message}");
+                }
+            }
+
+            var result = new
+            {
+                TotalRecords = mappingEntities.Count,
+                SuccessfulInserts = insertedCount,
+                FailedInserts = errors.Count,
+                Errors = errors,
+                Message = $"Imported {insertedCount} out of {mappingEntities.Count} OEM Supplier Mapping records successfully."
+            };
+
+            if (errors.Count > 0 && insertedCount == 0)
+            {
+                return new BadRequestObjectResult(result);
+            }
+            else if (errors.Count > 0)
+            {
+                return new ObjectResult(result) { StatusCode = 207 }; // Multi-Status
+            }
+
+            _logger.LogInformation($"Successfully imported {insertedCount} OEM Supplier Mapping records.");
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing OEM Supplier Mapping from CSV.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+
+    [Function("ImportOemSupplierMappingFromBlob")]
+    public async Task<IActionResult> ImportOemSupplierMappingFromBlobAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        _logger.LogInformation("Starting OEM Supplier Mapping import from blob storage.");
+
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("Storage connection string is null");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        try
+        {
+            var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
+            var blobClient = storageAccount.CreateCloudBlobClient();
+            var container = blobClient.GetContainerReference("oemsuppliermapping");
+            
+            if (!await container.ExistsAsync())
+            {
+                _logger.LogError("OEM Supplier Mapping blob container does not exist.");
+                return new NotFoundObjectResult("OEM Supplier Mapping blob container not found.");
+            }
+
+            BlobContinuationToken? continuationToken = null;
+            int totalRecords = 0;
+            var errors = new List<string>();
+
+            do
+            {
+                var resultSegment = await container.ListBlobsSegmentedAsync(null, true, BlobListingDetails.None, null, continuationToken, null, null);
+                foreach (IListBlobItem item in resultSegment.Results)
+                {
+                    if (item is CloudBlockBlob blob)
+                    {
+                        _logger.LogInformation($"Processing blob: {blob.Name}");
+                        
+                        if (!blob.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogWarning($"Blob {blob.Name} is not a CSV file. Skipping.");
+                            continue;
+                        }
+
+                        using var stream = await blob.OpenReadAsync();
+                        if (stream.Length == 0)
+                        {
+                            _logger.LogWarning($"Blob {blob.Name} is empty. Skipping.");
+                            continue;
+                        }
+
+                        using var reader = new StreamReader(stream);
+                        using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+                        csv.Context.RegisterClassMap<OemSupplierMappingMap>();
+
+                        var records = csv.GetRecords<OemSupplierMapping>();
+                        foreach (var mapping in records)
+                        {
+                            try
+                            {
+                                mapping.Timestamp = DateTimeOffset.UtcNow;
+                                await _tableService.AddEntityAsync("OemSupplierMapping", mapping);
+                                totalRecords++;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, $"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId}");
+                                errors.Add($"Failed to insert mapping for OEM Part: {mapping.OemPartNumber}, Supplier: {mapping.SupplierId}");
+                            }
+                        }
+                    }
+                }
+                continuationToken = resultSegment.ContinuationToken;
+            } while (continuationToken != null);
+
+            var result = new
+            {
+                TotalRecordsProcessed = totalRecords,
+                ErrorCount = errors.Count,
+                Errors = errors,
+                Message = $"OEM Supplier Mapping import complete. Total records processed: {totalRecords}, Errors: {errors.Count}"
+            };
+
+            _logger.LogInformation($"Import complete. Total records inserted: {totalRecords}, Errors: {errors.Count}");
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing OEM Supplier Mapping from blob storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+
+    [Function("GetOemSupplierMappings")]
+    public async Task<IActionResult> GetOemSupplierMappingsAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+    {
+        _logger.LogInformation("Retrieving OEM Supplier Mappings.");
+
+        // Optional query parameters for filtering
+        string? oemPartNumber = req.Query["oemPartNumber"];
+        string? supplierId = req.Query["supplierId"];
+
+        try
+        {
+            string filter = string.Empty;
+            
+            if (!string.IsNullOrWhiteSpace(oemPartNumber) && !string.IsNullOrWhiteSpace(supplierId))
+            {
+                filter = $"PartitionKey eq '{oemPartNumber}' and RowKey eq '{supplierId}'";
+            }
+            else if (!string.IsNullOrWhiteSpace(oemPartNumber))
+            {
+                filter = $"PartitionKey eq '{oemPartNumber}'";
+            }
+            else if (!string.IsNullOrWhiteSpace(supplierId))
+            {
+                filter = $"RowKey eq '{supplierId}'";
+            }
+
+            List<OemSupplierMapping> mappings;
+            if (string.IsNullOrWhiteSpace(filter))
+            {
+                mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", string.Empty);
+            }
+            else
+            {
+                mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
+            }
+
+            return new OkObjectResult(new
+            {
+                Count = mappings.Count,
+                Mappings = mappings
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving OEM Supplier Mappings from Azure Table Storage.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    // Helper method to find the solution root directory
+    private string? FindSolutionRoot(string startDirectory)
+    {
+        var directory = new DirectoryInfo(startDirectory);
+        
+        while (directory != null)
+        {
+            // Look for .sln files in the current directory
+            var solutionFiles = directory.GetFiles("*.sln", SearchOption.TopDirectoryOnly);
+            if (solutionFiles.Length > 0)
+            {
+                _logger.LogInformation($"Found solution file: {solutionFiles[0].FullName}");
+                return directory.FullName;
+            }
+            
+            // Also look for the CSV file directly
+            var csvFiles = directory.GetFiles("OEM_Supplier_Mapping.csv", SearchOption.TopDirectoryOnly);
+            if (csvFiles.Length > 0)
+            {
+                _logger.LogInformation($"Found CSV file in directory: {directory.FullName}");
+                return directory.FullName;
+            }
+            
+            directory = directory.Parent;
+        }
+        
+        return null;
+    }
+
+
     [Function("CalculateSupplyChainRisk")]
     public async Task<IActionResult> CalculateSupplyChainRisk(
         [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req)
@@ -1541,6 +2193,8 @@ string impactedNode)
             return new BadRequestObjectResult($"Error: {ex.Message}");
         }
     }
+
+
 }
 
 
