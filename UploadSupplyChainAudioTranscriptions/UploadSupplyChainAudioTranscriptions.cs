@@ -1410,9 +1410,9 @@ string impactedNode)
         { "supplierTier", subtierSupplier.Tier }
     };
 
-        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI") ?? "neo4j+s://7c2f46c2.databases.neo4j.io";
-        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER") ?? "neo4j";
-        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
 
         if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
         {
@@ -1526,9 +1526,9 @@ string impactedNode)
         try
         {
 
-            string? neo4jUri = "neo4j+s://7c2f46c2.databases.neo4j.io";
-            string? neo4jUser = "neo4j";
-            string? neo4jPassword = "IX9e2lhJ09QPNzE4sTRdyKR28gB3VSJ6wG5n1ZbIsG4";
+            string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+            string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+            string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
 
 
             // Example: read from Azure Table Storage (OemSupplierMapping)
