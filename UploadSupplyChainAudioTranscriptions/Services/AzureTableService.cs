@@ -78,6 +78,12 @@ namespace UploadSupplyChainAudioTranscriptions.Services
             await tableClient.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Replace);
         }
 
+        public async Task UpsertEntityAsync<T>(string tableName, T entity) where T : class, ITableEntity, new()
+        {
+            var tableClient = GetTableClient(tableName);
+            await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+        }
+
         public async Task DeleteEntityAsync(string tableName, string partitionKey, string rowKey)
         {
             var tableClient = GetTableClient(tableName);
