@@ -516,17 +516,21 @@ string rawMaterialName)
         var session = driver.AsyncSession();
 
         var query = @"
-                    MATCH (crm:ComponentRawMaterial {Name: 'Neodymium Magnet'})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
+                    MATCH (crm:ComponentRawMaterial {Name: $rawMaterialName})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
                     <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
                     <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
                     <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
                     RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
                     ";
 
+        var parameters = new Dictionary<string, object>
+        {
+            { "rawMaterialName", rawMaterialName }
+        };
 
         try
         {
-            var cursor = await session.RunAsync(query);
+            var cursor = await session.RunAsync(query, parameters);
             var records = await cursor.ToListAsync();
 
             var testResult = System.Text.Json.JsonSerializer.Serialize(records);
@@ -751,16 +755,21 @@ string impactedNode)
         var session = driver.AsyncSession();
 
         var query = @"
-                    MATCH (crm:ComponentRawMaterial {Name: 'Neodymium Magnet'})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
+                    MATCH (crm:ComponentRawMaterial {Name: $rawMaterialName})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
                     <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
                     <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
                     <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
                     RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
                     ";
 
+        var parameters = new Dictionary<string, object>
+        {
+            { "rawMaterialName", impactedNode }
+        };
+
         try
         {
-            var cursor = await session.RunAsync(query);
+            var cursor = await session.RunAsync(query, parameters);
             var records = await cursor.ToListAsync();
 
             // Count unique nodes by type
