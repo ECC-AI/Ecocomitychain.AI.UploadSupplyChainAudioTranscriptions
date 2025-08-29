@@ -48,22 +48,25 @@ public class UploadSupplyChainAudioTranscriptions
 
         if (!req.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ?? true)
         {
-            return new BadRequestObjectResult("Content-Type must be application/json.");
+            return new BadRequestObjectResult("Content-Type must be application/json. Multipart/form-data is not supported.");
         }
+
+        string rawBody;
+        using (var reader = new StreamReader(req.Body))
+        {
+            rawBody = await reader.ReadToEndAsync();
+        }
+        _logger.LogInformation($"Raw request body: {rawBody}");
 
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body,
-            new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            dataList = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SupplyChainData>>(rawBody);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deserialize JSON.");
-            return new BadRequestObjectResult("Invalid JSON format.");
+            _logger.LogError(ex, $"Failed to deserialize JSON. Raw body: {rawBody}");
+            return new BadRequestObjectResult($"Invalid JSON format: {ex.Message}");
         }
 
         if (dataList == null || dataList.Count == 0)
@@ -85,6 +88,12 @@ public class UploadSupplyChainAudioTranscriptions
             var table = tableClient.GetTableReference("SCAudioTranscriptions");
             await table.CreateIfNotExistsAsync();
 
+            // Create queue client for supplychain-warnings
+            var queueClient = storageAccount.CreateCloudQueueClient();
+            var queue = queueClient.GetQueueReference("supplychain-warnings");
+            await queue.CreateIfNotExistsAsync();
+
+            int queueCount = 0;
             foreach (var data in dataList)
             {
                 data.PartitionKey = data.SupplierID;
@@ -93,7 +102,26 @@ public class UploadSupplyChainAudioTranscriptions
 
                 var insertOperation = TableOperation.Insert(data);
                 await table.ExecuteAsync(insertOperation);
+
+                // If status is 'delayed', send the raw SupplyChainData to queue
+                if (string.Equals(data.Status, "delayed", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        string messageContent = System.Text.Json.JsonSerializer.Serialize(data);
+                        var queueMessage = new CloudQueueMessage(messageContent);
+                        await queue.AddMessageAsync(queueMessage);
+                        queueCount++;
+                        _logger.LogInformation($"Sent SupplyChainData to queue for supplier: {data.SupplierID}");
+                    }
+                    catch (Exception queueEx)
+                    {
+                        _logger.LogError(queueEx, $"Failed to send queue message for supplier: {data.SupplierID}");
+                        // Continue processing other messages even if one fails
+                    }
+                }
             }
+            _logger.LogInformation($"Uploaded {dataList.Count} supply chain records and sent {queueCount} queue messages (status='delayed')");
         }
         catch (Exception ex)
         {
@@ -101,7 +129,8 @@ public class UploadSupplyChainAudioTranscriptions
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
 
-        return new OkObjectResult("Data uploaded successfully.");
+        // Return the raw SupplyChainData entities that were uploaded
+        return new OkObjectResult(dataList);
     }
 
 
@@ -124,11 +153,6 @@ public class UploadSupplyChainAudioTranscriptions
             var tableClient = storageAccount.CreateCloudTableClient();
             var table = tableClient.GetTableReference("SCAudioTranscriptions");
             await table.CreateIfNotExistsAsync();
-
-            // Create queue client for supplychain-warnings
-            var queueClient = storageAccount.CreateCloudQueueClient();
-            var queue = queueClient.GetQueueReference("supplychain-warnings");
-            await queue.CreateIfNotExistsAsync();
 
             var query = new TableQuery<SupplyChainData>();
             var results = new List<SupplyChainDataViewModel>();
@@ -168,46 +192,7 @@ public class UploadSupplyChainAudioTranscriptions
                 token = segment.ContinuationToken;
             } while (token != null);
 
-            // Send messages to supplychain-warnings queue for each record
-            int queueCount = 0;
-            foreach (var result in results)
-            {
-                if (string.Equals(result.Status, "delayed", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        var warningMessage = new
-                        {
-                            SupplierId = result.SupplierID,
-                            Tier = result.Tier,
-                            Stage = result.Stage,
-                            Status = result.Status,
-                            BarColor = result.BarColor,
-                            SupplierParts = result.SupplierParts,
-                            PlannedStartDate = result.PlannedStartDate,
-                            PlannedCompletionDate = result.PlannedCompletionDate,
-                            RippleEffect = result.RippleEffect,
-                            Timestamp = result.Timestamp,
-                            MessageType = "SupplyChainDataRetrieved",
-                            ProcessedAt = DateTimeOffset.UtcNow
-                        };
-
-                        string messageContent = System.Text.Json.JsonSerializer.Serialize(warningMessage);
-                        var queueMessage = new CloudQueueMessage(messageContent);
-                        await queue.AddMessageAsync(queueMessage);
-                        queueCount++;
-                        _logger.LogInformation($"Sent warning message to queue for supplier: {result.SupplierID}");
-                    }
-                    catch (Exception queueEx)
-                    {
-                        _logger.LogError(queueEx, $"Failed to send queue message for supplier: {result.SupplierID}");
-                        // Continue processing other messages even if one fails
-                    }
-                }
-            }
-
-            _logger.LogInformation($"Retrieved {results.Count} supply chain records and sent {queueCount} queue messages (status='delayed')");
-
+            _logger.LogInformation($"Retrieved {results.Count} supply chain records.");
             return new OkObjectResult(results);
         }
         catch (Exception ex)
