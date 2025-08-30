@@ -16,7 +16,8 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         public string? Supplier { get; set; }
         public string? Tier { get; set; }
         public string? Stage { get; set; }
-    public SupplierPart? SupplierPart { get; set; }
+        public SupplierPart? SupplierPart { get; set; }
+        public OemPart? OemPart { get; set; }
         public string? Status { get; set; }
         public string? RippleEffect { get; set; }
         public DateTimeOffset? PlannedStartDate { get; set; }

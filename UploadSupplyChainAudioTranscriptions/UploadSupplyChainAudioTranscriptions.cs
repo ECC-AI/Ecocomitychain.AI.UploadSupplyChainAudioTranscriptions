@@ -58,6 +58,7 @@ public class UploadSupplyChainAudioTranscriptions
         }
         _logger.LogInformation($"Raw request body: {rawBody}");
 
+
         List<SupplyChainData>? dataList;
         try
         {
@@ -72,6 +73,41 @@ public class UploadSupplyChainAudioTranscriptions
         if (dataList == null || dataList.Count == 0)
         {
             return new BadRequestObjectResult("At least one JSON payload is required.");
+        }
+
+        // For each SupplyChainData, query OemSupplierMapping and set OemPart
+        foreach (var data in dataList)
+        {
+            string? supplierPartNumber = null;
+            if (data.SupplierPart != null && !string.IsNullOrWhiteSpace(data.SupplierPart.SupplierPartNumber))
+            {
+                supplierPartNumber = data.SupplierPart.SupplierPartNumber;
+            }
+            // fallback: try to get from SupplierPartJson if not already set
+            if (string.IsNullOrWhiteSpace(supplierPartNumber) && !string.IsNullOrWhiteSpace(data.SupplierPartJson))
+            {
+                try
+                {
+                    var part = JsonConvert.DeserializeObject<SupplierPart>(data.SupplierPartJson);
+                    if (part != null && !string.IsNullOrWhiteSpace(part.SupplierPartNumber))
+                        supplierPartNumber = part.SupplierPartNumber;
+                }
+                catch { }
+            }
+            if (!string.IsNullOrWhiteSpace(supplierPartNumber))
+            {
+                string filter = $"SupplierPartNumber eq '{supplierPartNumber}'";
+                var mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
+                var mapping = mappings.FirstOrDefault();
+                if (mapping != null)
+                {
+                    data.OemPart = new OemPart
+                    {
+                        OemPartNumber = mapping.OemPartNumber,
+                        OemPartName = mapping.OemPartName
+                    };
+                }
+            }
         }
 
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
@@ -1468,6 +1504,7 @@ string impactedNode)
                 Tier = supplyChainData?.Tier,
                 Stage = supplyChainData?.Stage,
                 SupplierPart = supplyChainData?.SupplierPart,
+                OemPart = supplyChainData?.OemPart,
                 Status = supplyChainData?.Status,
                 RippleEffect = supplyChainData?.RippleEffect,
                 PlannedStartDate = supplyChainData?.PlannedStartDate,
@@ -2453,6 +2490,80 @@ string impactedNode)
         {
             _logger.LogError($"Error during calculation: {ex.Message}");
             return new BadRequestObjectResult($"Error: {ex.Message}");
+        }
+    }
+
+
+    [Function("GetSubtierSupplierWarnings")]
+    public async Task<IActionResult> GetSubtierSupplierWarnings(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/subtier-warnings")] HttpRequest req)
+    {
+        _logger.LogInformation("Retrieving subtier supplier warnings from Cosmos DB.");
+
+        // Cosmos DB connection details
+        string? cosmosDbConnectionString = Environment.GetEnvironmentVariable("CosmosDbConnectionString");
+        string databaseId = "ecc_alerts";
+        string containerId = "supplyChainWarnings";
+
+        if (string.IsNullOrWhiteSpace(cosmosDbConnectionString))
+        {
+            _logger.LogError("Cosmos DB connection string is missing.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        // Get supplierId from query string
+        string? supplierId = req.Query["supplierId"];
+
+        try
+        {
+            var cosmosClient = new Microsoft.Azure.Cosmos.CosmosClient(cosmosDbConnectionString);
+            var container = cosmosClient.GetContainer(databaseId, containerId);
+
+            Microsoft.Azure.Cosmos.QueryDefinition query;
+            if (!string.IsNullOrWhiteSpace(supplierId))
+            {
+                query = new Microsoft.Azure.Cosmos.QueryDefinition("SELECT * FROM c WHERE c.DocumentType = @docType AND (c.SupplierId = @supplierId OR c.PartitionKey = @supplierId)")
+                    .WithParameter("@docType", "SupplyChainWarning")
+                    .WithParameter("@supplierId", supplierId);
+            }
+            else
+            {
+                query = new Microsoft.Azure.Cosmos.QueryDefinition("SELECT * FROM c WHERE c.DocumentType = @docType")
+                    .WithParameter("@docType", "SupplyChainWarning");
+            }
+
+            var iterator = container.GetItemQueryIterator<dynamic>(query);
+            var results = new List<object>();
+
+            while (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync();
+                foreach (var item in response)
+                {
+                    // Map to view model
+                    results.Add(new
+                    {
+                        supplier = (string?)item.SupplierId ?? (string?)item.PartitionKey,
+                        tier = (string?)item.Tier,
+                        stage = (string?)item.Stage,
+                        material = item.SupplierPart != null && item.SupplierPart.SupplierPartName != null ? (string?)item.SupplierPart.SupplierPartName : null,
+                        rippleEffect = (string?)item.RippleEffect,
+                        componentRawMaterialCount = item.ComponentRawMaterialCount != null ? (int?)item.ComponentRawMaterialCount : 0,
+                        componentCount = item.ComponentCount != null ? (int?)item.ComponentCount : 0,
+                        bomSubItemCount = item.BomSubItemCount != null ? (int?)item.BomSubItemCount : 0,
+                        bomItemCount = item.BomItemCount != null ? (int?)item.BomItemCount : 0,
+                        materialBOMCount = item.MaterialBOMCount != null ? (int?)item.MaterialBOMCount : 0,
+                        rawMaterialName = ((item.SupplierPart != null && item.SupplierPart.SupplierPartName != null) ? ((string)item.SupplierPart.SupplierPartName).Replace(" ", "-").ToLowerInvariant() : null)
+                    });
+                }
+            }
+
+            return new OkObjectResult(results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying Cosmos DB for subtier supplier warnings.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
     }
 

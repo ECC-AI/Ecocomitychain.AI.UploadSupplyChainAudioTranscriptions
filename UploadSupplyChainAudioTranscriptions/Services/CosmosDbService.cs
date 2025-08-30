@@ -40,6 +40,7 @@ namespace UploadSupplyChainAudioTranscriptions.Services
                     supplierId = supplyChainData.SupplierID,
                     stage = supplyChainData.Stage,
                     supplierPart = supplyChainData.SupplierPart,
+                    oempart = supplyChainData.OemPart,
                     status = supplyChainData.Status,
                     qtyPlanned = supplyChainData.QtyPlanned,
                     qtyFromInventory = supplyChainData.QtyFromInventory,

@@ -35,6 +35,32 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
                 SupplierPartJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
             }
         }
+
+        // Store as JSON string for Azure Table Storage compatibility
+        public string OemPartJson { get; set; }
+
+        // Property for easy access to OemPart (not stored in table)
+        [IgnoreProperty]
+        public OemPart OemPart
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(OemPartJson))
+                    return null;
+                try
+                {
+                    return JsonConvert.DeserializeObject<OemPart>(OemPartJson);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+            set
+            {
+                OemPartJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
+            }
+        }
         
         public string Status { get; set; }
 
