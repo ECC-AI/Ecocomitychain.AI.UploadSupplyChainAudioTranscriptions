@@ -1,9 +1,4 @@
 ﻿using Microsoft.WindowsAzure.Storage.Table;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace UploadSupplyChainAudioTranscriptions.Entities
@@ -16,29 +11,28 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         public string Stage { get; set; }
         
         // Store as JSON string for Azure Table Storage compatibility
-        public string SupplierPartsJson { get; set; }
-        
-        // Property for easy access to SupplierParts (not stored in table)
+        public string SupplierPartJson { get; set; }
+
+        // Property for easy access to SupplierPart (not stored in table)
         [IgnoreProperty]
-        public List<SupplierPart> SupplierParts 
-        { 
-            get 
+        public SupplierPart SupplierPart
+        {
+            get
             {
-                if (string.IsNullOrEmpty(SupplierPartsJson))
-                    return new List<SupplierPart>();
-                
+                if (string.IsNullOrEmpty(SupplierPartJson))
+                    return null;
                 try
                 {
-                    return JsonConvert.DeserializeObject<List<SupplierPart>>(SupplierPartsJson) ?? new List<SupplierPart>();
+                    return JsonConvert.DeserializeObject<SupplierPart>(SupplierPartJson);
                 }
                 catch
                 {
-                    return new List<SupplierPart>();
+                    return null;
                 }
             }
-            set 
+            set
             {
-                SupplierPartsJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
+                SupplierPartJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
             }
         }
         

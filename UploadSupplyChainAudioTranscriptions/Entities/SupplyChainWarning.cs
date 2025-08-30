@@ -1,19 +1,22 @@
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using UploadSupplyChainAudioTranscriptions.Entities;
+using Newtonsoft.Json;
 
 namespace UploadSupplyChainAudioTranscriptions.Entities
 {
     public class SupplyChainWarning
     {
-        public string Id { get; set; } = Guid.NewGuid().ToString();
+        [JsonProperty("id")]
+        public string Id { get; set; }
         public string PartitionKey { get; set; } = string.Empty;
-        
-        // Data from SupplyChainData (GetSupplyChainAudioTranscriptionsBySupplierIdAndStatus)
+
+        [JsonProperty("SupplierId")]
         public string? Supplier { get; set; }
         public string? Tier { get; set; }
         public string? Stage { get; set; }
-        public List<SupplierPart>? SupplierParts { get; set; }
+    public SupplierPart? SupplierPart { get; set; }
         public string? Status { get; set; }
         public string? RippleEffect { get; set; }
         public DateTimeOffset? PlannedStartDate { get; set; }

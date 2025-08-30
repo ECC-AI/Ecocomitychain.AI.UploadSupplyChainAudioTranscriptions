@@ -61,7 +61,7 @@ public class UploadSupplyChainAudioTranscriptions
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SupplyChainData>>(rawBody);
+            dataList = JsonConvert.DeserializeObject<List<SupplyChainData>>(rawBody);
         }
         catch (Exception ex)
         {
@@ -168,7 +168,7 @@ public class UploadSupplyChainAudioTranscriptions
                         Tier = item.Tier,
                         SupplierID = item.SupplierID,
                         Stage = item.Stage,
-                        SupplierParts = item.SupplierParts ?? new List<SupplierPart>(),
+                        SupplierPart = item.SupplierPart,
                         Status = item.Status,
                         BarColor = item.Status?.ToLowerInvariant() switch
                         {
@@ -387,7 +387,7 @@ public class UploadSupplyChainAudioTranscriptions
                 Supplier = result.SupplierID,
                 Tier = result.Tier,
                 Stage = result.Stage,
-                SupplierParts = result.SupplierParts ?? new List<SupplierPart>(),
+                SupplierPart = result.SupplierPart,
                 PlannedStartDate = result.PlannedStartDate,
                 PlannedCompletionDate = result.PlannedCompletionDate,
                 RippleEffect = result.RippleEffect
@@ -1387,11 +1387,50 @@ string impactedNode)
         return new OkObjectResult(result);
     }
 
-    [Function("StoreSupplyChainWarning")]
-    public async Task StoreSupplyChainWarningAsync(
-        [Microsoft.Azure.Functions.Worker.QueueTrigger("supplychain-warnings", Connection = "scaudiotranscriptions")] string queueMessage)
+    //[Function("StoreSupplyChainWarning")]
+    //public async Task StoreSupplyChainWarningAsync(
+    //    [Microsoft.Azure.Functions.Worker.QueueTrigger("supplychain-warnings", Connection = "scaudiotranscriptions")] string queueMessage)
+    //{
+    //    _logger.LogInformation("Processing supply chain warning from queue message.");
+
+    //    SupplyChainData? supplyChainData;
+    //    try
+    //    {
+    //        supplyChainData = System.Text.Json.JsonSerializer.Deserialize<SupplyChainData>(queueMessage,
+    //            new JsonSerializerOptions
+    //            {
+    //                PropertyNameCaseInsensitive = true
+    //            });
+    //    }
+    //    catch (System.Text.Json.JsonException ex)
+    //    {
+    //        _logger.LogError(ex, "Invalid JSON format in queue message.");
+    //        return;
+    //    }
+
+    //    if (supplyChainData == null)
+    //    {
+    //        _logger.LogError("Queue message could not be deserialized to SupplyChainData.");
+    //        return;
+    //    }
+
+    //    try
+    //    {
+    //        // Store the supply chain data as a warning in Cosmos DB
+    //        var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainData);
+    //        _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error storing supply chain warning from queue message.");
+    //    }
+    //}
+
+    [Function("StoreSupplyChainWarningDetailsQueue")]
+    public async Task StoreSupplyChainWarningDetailsAsync(
+        [QueueTrigger("supplychain-warnings", Connection = "scaudiotranscriptions")] string queueMessage)
     {
-        _logger.LogInformation("Processing supply chain warning from queue message.");
+        _logger.LogInformation("Processing supply chain warning from queue message (queue trigger).");
 
         SupplyChainData? supplyChainData;
         try
@@ -1414,64 +1453,27 @@ string impactedNode)
             return;
         }
 
-        try
-        {
-            // Store the supply chain data as a warning in Cosmos DB
-            var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainData);
-            _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error storing supply chain warning from queue message.");
-        }
-    }
-
-    [Function("StoreSupplyChainWarningDetails")]
-    public async Task<IActionResult> StoreSupplyChainWarningDetailsAsync(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "warnings/details")] HttpRequest req)
-    {
-        _logger.LogInformation("Processing supply chain warning storage request.");
-
-        if (!req.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ?? true)
-        {
-            return new BadRequestObjectResult("Content-Type must be application/json.");
-        }
-
-        // Parse the request body to get supplier ID, status, and impacted node
-        var requestData = await System.Text.Json.JsonSerializer.DeserializeAsync<SupplyChainWarningRequest>(req.Body,
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-        if (requestData == null || string.IsNullOrWhiteSpace(requestData.SupplierId) || 
-            string.IsNullOrWhiteSpace(requestData.Status) || string.IsNullOrWhiteSpace(requestData.ImpactedNode))
-        {
-            return new BadRequestObjectResult("SupplierId, Status, and ImpactedNode are required.");
-        }
 
         try
-        {
-            // Get supply chain data (similar to GetSupplyChainAudioTranscriptionsBySupplierIdAndStatus)
-            var supplyChainData = await GetSupplyChainDataBySupplierIdAndStatusAsync(requestData.SupplierId, requestData.Status);
-            
+        {            
             // Get impacted node count data (similar to QueryImpactedNodeCount)
-            var impactedNodeData = await GetImpactedNodeCountAsync(requestData.ImpactedNode);
+            var impactedNodeData = await GetImpactedNodeCountAsync(supplyChainData.SupplierPart.SupplierPartName);
 
             // Create combined warning object
             var combinedWarning = new SupplyChainWarning
             {
-                PartitionKey = requestData.SupplierId,
+                Id = Guid.NewGuid().ToString(),
+                PartitionKey = supplyChainData.SupplierID,
                 Supplier = supplyChainData?.SupplierID,
                 Tier = supplyChainData?.Tier,
                 Stage = supplyChainData?.Stage,
-                SupplierParts = supplyChainData?.SupplierParts,
+                SupplierPart = supplyChainData?.SupplierPart,
                 Status = supplyChainData?.Status,
                 RippleEffect = supplyChainData?.RippleEffect,
                 PlannedStartDate = supplyChainData?.PlannedStartDate,
                 PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
                 ReportedTime = supplyChainData?.ReportedTime,
-                ImpactedNode = requestData.ImpactedNode,
+                ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
                 ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
                 ComponentCount = impactedNodeData?.ComponentCount,
                 BomSubItemCount = impactedNodeData?.BomSubItemCount,
@@ -1484,22 +1486,11 @@ string impactedNode)
             
             _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
             
-            var response = new
-            {
-                Message = "Supply chain warning stored successfully",
-                DocumentId = documentId,
-                SupplierId = requestData.SupplierId,
-                ImpactedNode = requestData.ImpactedNode,
-                Status = requestData.Status,
-                Timestamp = DateTimeOffset.UtcNow
-            };
-
-            return new OkObjectResult(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error storing supply chain warning.");
-            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            throw;
         }
     }
 
@@ -1794,9 +1785,6 @@ string impactedNode)
         }
     }
 
-
-
-
     private async Task<string?> GetOemPartNumberForSupplierPartAsync(string supplierPart)
     {
         try
@@ -1817,8 +1805,6 @@ string impactedNode)
             return null;
         }
     }
-
-
 
 
     [Function("SupplierMinimalSignIn")]

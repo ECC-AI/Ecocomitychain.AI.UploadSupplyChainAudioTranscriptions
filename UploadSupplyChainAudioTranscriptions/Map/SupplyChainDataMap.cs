@@ -12,27 +12,19 @@ public sealed class SupplyChainDataMap : ClassMap<SupplyChainData>
         Map(m => m.Tier);
         Map(m => m.SupplierID);
         Map(m => m.Stage);
-        Map(m => m.SupplierPartsJson).Name("Material").Convert(args => 
+        Map(m => m.SupplierPartJson).Name("Material").Convert(args => 
         {
-            // Handle CSV parsing for SupplierParts - assuming format like "PartNumber1:PartName1;PartNumber2:PartName2"
+            // Handle CSV parsing for SupplierPart - expecting format like "PartNumber:PartName"
             var materialValue = args.Row.GetField("Material");
             if (string.IsNullOrEmpty(materialValue))
                 return string.Empty;
-            
-            var supplierParts = materialValue.Split(';')
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .Select(part => 
-                {
-                    var partData = part.Split(':');
-                    return new SupplierPart
-                    {
-                        SupplierPartNumber = partData.Length > 0 ? partData[0] : string.Empty,
-                        SupplierPartName = partData.Length > 1 ? partData[1] : partData[0]
-                    };
-                })
-                .ToList();
-                
-            return JsonConvert.SerializeObject(supplierParts);
+            var partData = materialValue.Split(':');
+            var supplierPart = new SupplierPart
+            {
+                SupplierPartNumber = partData.Length > 0 ? partData[0] : string.Empty,
+                SupplierPartName = partData.Length > 1 ? partData[1] : partData[0]
+            };
+            return JsonConvert.SerializeObject(supplierPart);
         });
         Map(m => m.Status);
         Map(m => m.QtyPlanned);

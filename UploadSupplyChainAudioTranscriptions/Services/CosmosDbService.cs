@@ -10,8 +10,8 @@ namespace UploadSupplyChainAudioTranscriptions.Services
         private readonly CosmosClient _cosmosClient;
         private readonly Container _container;
         private readonly ILogger<CosmosDbService> _logger;
-        private const string DatabaseName = "SupplyChainDB";
-        private const string ContainerName = "SupplyChainWarnings";
+        private const string DatabaseName = "ecc_alerts";
+        private const string ContainerName = "supplyChainWarnings";
 
         public CosmosDbService(CosmosClient cosmosClient, ILogger<CosmosDbService> logger)
         {
@@ -39,7 +39,7 @@ namespace UploadSupplyChainAudioTranscriptions.Services
                     tier = supplyChainData.Tier,
                     supplierId = supplyChainData.SupplierID,
                     stage = supplyChainData.Stage,
-                    supplierParts = supplyChainData.SupplierParts,
+                    supplierPart = supplyChainData.SupplierPart,
                     status = supplyChainData.Status,
                     qtyPlanned = supplyChainData.QtyPlanned,
                     qtyFromInventory = supplyChainData.QtyFromInventory,

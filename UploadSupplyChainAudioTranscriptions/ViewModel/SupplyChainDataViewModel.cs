@@ -13,7 +13,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
         public string Tier { get; set; }
         public string SupplierID { get; set; }
         public string Stage { get; set; }
-        public List<SupplierPart> SupplierParts { get; set; } = new List<SupplierPart>();
+    public SupplierPart SupplierPart { get; set; }
         public string Status { get; set; }
         public double? QuantityPlanned { get; set; }
         public double? QuantityFromInventory { get; set; }
