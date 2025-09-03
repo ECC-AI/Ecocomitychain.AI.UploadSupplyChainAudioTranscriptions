@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Microsoft.WindowsAzure.Storage.Table;
+using UploadSupplyChainAudioTranscriptions.Entities;
 
 namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
 {
@@ -13,7 +16,8 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
     {
         public required string SupplierName { get; set; }
         
-        public required List<string> PartNumbers { get; set; }
+        public List<SupplierPart> SupplierPart { get; set; } = new List<SupplierPart>();
+
         public required string PlantName { get; set; }
         public string? Tier { get; set; } // Progressive Profiling
 
