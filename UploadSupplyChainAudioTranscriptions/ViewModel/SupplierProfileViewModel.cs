@@ -16,30 +16,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
     {
         public required string SupplierName { get; set; }
         
-        public string SupplierPartJson { get; set; }
-
-        // Property for easy access to SupplierPart (not stored in table)
-        [IgnoreProperty]
-        public SupplierPart SupplierPart
-        {
-            get
-            {
-                if (string.IsNullOrEmpty(SupplierPartJson))
-                    return null;
-                try
-                {
-                    return JsonConvert.DeserializeObject<SupplierPart>(SupplierPartJson);
-                }
-                catch
-                {
-                    return null;
-                }
-            }
-            set
-            {
-                SupplierPartJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
-            }
-        }
+        public List<SupplierPart> SupplierPart { get; set; } = new List<SupplierPart>();
 
         public required string PlantName { get; set; }
         public string? Tier { get; set; } // Progressive Profiling

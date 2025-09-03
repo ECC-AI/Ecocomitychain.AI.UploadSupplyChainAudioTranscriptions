@@ -87,11 +87,11 @@ public class UploadSupplyChainAudioTranscriptions
             if (string.IsNullOrWhiteSpace(supplierPartNumber) && !string.IsNullOrWhiteSpace(data.SupplierPartJson))
             {
                 try
-                {
+                    {
                     var part = JsonConvert.DeserializeObject<SupplierPart>(data.SupplierPartJson);
                     if (part != null && !string.IsNullOrWhiteSpace(part.SupplierPartNumber))
                         supplierPartNumber = part.SupplierPartNumber;
-                }
+                    }
                 catch { }
             }
             if (!string.IsNullOrWhiteSpace(supplierPartNumber))
@@ -1273,16 +1273,19 @@ string impactedNode)
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
-                int partCount = supplierProfileRequest.SupplierPart != null ? 1 : 0;
+                int partCount = supplierProfileRequest.SupplierPart?.Count ?? 0;
                 List<SupplierPartDetail> supplierPartDetailColl = new List<SupplierPartDetail>();
                 if (partCount > 0 && supplierProfileRequest.SupplierPart != null)
                 {
-                    var supplierPartDetails = new SupplierPartDetail
-                    {
-                        PartNumber = supplierProfileRequest.SupplierPart.SupplierPartNumber,
-                        SupplierId = supplierId
-                    };
-                    supplierPartDetailColl.Add(supplierPartDetails);
+                        foreach (var part in supplierProfileRequest.SupplierPart)
+                        {
+                            var supplierPartDetails = new SupplierPartDetail
+                            {
+                                PartNumber = part.SupplierPartNumber,
+                                SupplierId = supplierId
+                            };
+                            supplierPartDetailColl.Add(supplierPartDetails);
+                        }
                 }
 
                 try
@@ -1322,40 +1325,46 @@ string impactedNode)
                 try
                 {
                     int updatedMappings = 0;
-                    if (supplierProfileRequest.SupplierPart != null && !string.IsNullOrEmpty(supplierProfileRequest.SupplierPart.SupplierPartNumber))
+                    if (supplierProfileRequest.SupplierPart != null && supplierProfileRequest.SupplierPart.Count > 0)
                     {
-                        var partNumber = supplierProfileRequest.SupplierPart.SupplierPartNumber;
-                        try
+                        foreach (var part in supplierProfileRequest.SupplierPart)
                         {
-                            // Query for existing mappings with this supplier part number
-                            string filter = $"SupplierPartNumber eq '{partNumber}'";
-                            var existingMappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
-                            
-                            foreach (var mapping in existingMappings)
+                            if (!string.IsNullOrEmpty(part.SupplierPartNumber))
                             {
-                                // Update the supplier ID in the existing mapping
-                                var updatedMapping = new OemSupplierMapping
+                                var partNumber = part.SupplierPartNumber;
+                                try
                                 {
-                                    PartitionKey = mapping.PartitionKey,
-                                    RowKey = supplierId, // Update with new supplier ID
-                                    OemPartNumber = mapping.OemPartNumber,
-                                    OemPartName = mapping.OemPartName,
-                                    SupplierId = supplierId,
-                                    SupplierPartNumber = mapping.SupplierPartNumber,
-                                    SupplierPartName = mapping.SupplierPartName,
-                                    Timestamp = DateTimeOffset.UtcNow,
-                                    ETag = Azure.ETag.All // Allow overwrite
-                                };
-                                
-                                await _tableService.UpsertEntityAsync("OemSupplierMapping", updatedMapping);
-                                updatedMappings++;
-                                _logger.LogInformation($"Updated OEM mapping for part {partNumber} with supplier ID {supplierId}");
+                                    // Query for existing mappings with this supplier part number
+                                    string filter = $"SupplierPartNumber eq '{partNumber}'";
+                                    var existingMappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
+                                    
+                                    foreach (var mapping in existingMappings)
+                                    {
+                                        // Update the supplier ID in the existing mapping
+                                        var updatedMapping = new OemSupplierMapping
+                                        {
+                                            PartitionKey = mapping.PartitionKey,
+                                            RowKey = supplierId, // Update with new supplier ID
+                                            OemPartNumber = mapping.OemPartNumber,
+                                            OemPartName = mapping.OemPartName,
+                                            SupplierId = supplierId,
+                                            SupplierPartNumber = mapping.SupplierPartNumber,
+                                            SupplierPartName = mapping.SupplierPartName,
+                                            Timestamp = DateTimeOffset.UtcNow,
+                                            ETag = Azure.ETag.All // Allow overwrite
+                                        };
+                                        
+                                        await _tableService.UpsertEntityAsync("OemSupplierMapping", updatedMapping);
+                                        updatedMappings++;
+                                        _logger.LogInformation($"Updated OEM mapping for part {partNumber} with supplier ID {supplierId}");
+                                    }
+                                }
+                                catch (Exception partEx)
+                                {
+                                    _logger.LogWarning(partEx, $"Failed to update OEM mapping for part number {partNumber} for supplier {supplierProfileRequest.SupplierName}");
+                                    // Continue processing other parts even if one fails
+                                }
                             }
-                        }
-                        catch (Exception partEx)
-                        {
-                            _logger.LogWarning(partEx, $"Failed to update OEM mapping for part number {partNumber} for supplier {supplierProfileRequest.SupplierName}");
-                            // Continue processing other parts even if one fails
                         }
                     }
                     
@@ -1383,8 +1392,11 @@ string impactedNode)
                 await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
                 {
                     LeadTimeInDays = 20,
-                    PartNumbers = supplierProfileRequest.SupplierPart != null && !string.IsNullOrEmpty(supplierProfileRequest.SupplierPart.SupplierPartNumber) 
-                        ? new List<string> { supplierProfileRequest.SupplierPart.SupplierPartNumber } 
+                    PartNumbers = supplierProfileRequest.SupplierPart != null
+                        ? supplierProfileRequest.SupplierPart
+                            .Where(p => !string.IsNullOrEmpty(p.SupplierPartNumber))
+                            .Select(p => p.SupplierPartNumber)
+                            .ToList()
                         : new List<string>(),
                     SupplierId = supplierId,
                     SupplierName = supplierProfileRequest.SupplierName,
