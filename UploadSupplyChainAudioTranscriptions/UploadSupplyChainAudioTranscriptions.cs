@@ -10,11 +10,13 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.WindowsAzure.Storage.Queue;
 using Microsoft.WindowsAzure.Storage.Table;
 using Neo4j.Driver;
 using Newtonsoft.Json;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using UploadSupplyChainAudioTranscriptions.Entities;
 using UploadSupplyChainAudioTranscriptions.Services;
 
@@ -22,17 +24,21 @@ using UploadSupplyChainAudioTranscriptions.Services;
 
 namespace UploadSupplyChainAudioTranscriptions;
 
+
 public class UploadSupplyChainAudioTranscriptions
 {
     private readonly ILogger<UploadSupplyChainAudioTranscriptions> _logger;
     private readonly AzureTableService _tableService;
+    private readonly ICosmosDbService _cosmosDbService;
 
     public UploadSupplyChainAudioTranscriptions(
         ILogger<UploadSupplyChainAudioTranscriptions> logger,
-        AzureTableService tableService)
+        AzureTableService tableService,
+        ICosmosDbService cosmosDbService)
     {
         _logger = logger;
         _tableService = tableService;
+        _cosmosDbService = cosmosDbService;
     }
 
     [Function("UploadSupplyChainAudioTranscriptions")]
@@ -42,27 +48,66 @@ public class UploadSupplyChainAudioTranscriptions
 
         if (!req.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ?? true)
         {
-            return new BadRequestObjectResult("Content-Type must be application/json.");
+            return new BadRequestObjectResult("Content-Type must be application/json. Multipart/form-data is not supported.");
         }
+
+        string rawBody;
+        using (var reader = new StreamReader(req.Body))
+        {
+            rawBody = await reader.ReadToEndAsync();
+        }
+        _logger.LogInformation($"Raw request body: {rawBody}");
+
 
         List<SupplyChainData>? dataList;
         try
         {
-            dataList = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainData>>(req.Body,
-            new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            dataList = JsonConvert.DeserializeObject<List<SupplyChainData>>(rawBody);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deserialize JSON.");
-            return new BadRequestObjectResult("Invalid JSON format.");
+            _logger.LogError(ex, $"Failed to deserialize JSON. Raw body: {rawBody}");
+            return new BadRequestObjectResult($"Invalid JSON format: {ex.Message}");
         }
 
         if (dataList == null || dataList.Count == 0)
         {
             return new BadRequestObjectResult("At least one JSON payload is required.");
+        }
+
+        // For each SupplyChainData, query OemSupplierMapping and set OemPart
+        foreach (var data in dataList)
+        {
+            string? supplierPartNumber = null;
+            if (data.SupplierPart != null && !string.IsNullOrWhiteSpace(data.SupplierPart.SupplierPartNumber))
+            {
+                supplierPartNumber = data.SupplierPart.SupplierPartNumber;
+            }
+            // fallback: try to get from SupplierPartJson if not already set
+            if (string.IsNullOrWhiteSpace(supplierPartNumber) && !string.IsNullOrWhiteSpace(data.SupplierPartJson))
+            {
+                try
+                {
+                    var part = JsonConvert.DeserializeObject<SupplierPart>(data.SupplierPartJson);
+                    if (part != null && !string.IsNullOrWhiteSpace(part.SupplierPartNumber))
+                        supplierPartNumber = part.SupplierPartNumber;
+                }
+                catch { }
+            }
+            if (!string.IsNullOrWhiteSpace(supplierPartNumber))
+            {
+                string filter = $"SupplierPartNumber eq '{supplierPartNumber}'";
+                var mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
+                var mapping = mappings.FirstOrDefault();
+                if (mapping != null)
+                {
+                    data.OemPart = new OemPart
+                    {
+                        OemPartNumber = mapping.OemPartNumber,
+                        OemPartName = mapping.OemPartName
+                    };
+                }
+            }
         }
 
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
@@ -79,6 +124,12 @@ public class UploadSupplyChainAudioTranscriptions
             var table = tableClient.GetTableReference("SCAudioTranscriptions");
             await table.CreateIfNotExistsAsync();
 
+            // Create queue client for supplychain-warnings
+            var queueClient = storageAccount.CreateCloudQueueClient();
+            var queue = queueClient.GetQueueReference("supplychain-warnings");
+            await queue.CreateIfNotExistsAsync();
+
+            int queueCount = 0;
             foreach (var data in dataList)
             {
                 data.PartitionKey = data.SupplierID;
@@ -87,7 +138,26 @@ public class UploadSupplyChainAudioTranscriptions
 
                 var insertOperation = TableOperation.Insert(data);
                 await table.ExecuteAsync(insertOperation);
+
+                // If status is 'delayed', send the raw SupplyChainData to queue
+                if (string.Equals(data.Status, "delayed", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        string messageContent = System.Text.Json.JsonSerializer.Serialize(data);
+                        var queueMessage = new CloudQueueMessage(messageContent);
+                        await queue.AddMessageAsync(queueMessage);
+                        queueCount++;
+                        _logger.LogInformation($"Sent SupplyChainData to queue for supplier: {data.SupplierID}");
+                    }
+                    catch (Exception queueEx)
+                    {
+                        _logger.LogError(queueEx, $"Failed to send queue message for supplier: {data.SupplierID}");
+                        // Continue processing other messages even if one fails
+                    }
+                }
             }
+            _logger.LogInformation($"Uploaded {dataList.Count} supply chain records and sent {queueCount} queue messages (status='delayed')");
         }
         catch (Exception ex)
         {
@@ -95,7 +165,8 @@ public class UploadSupplyChainAudioTranscriptions
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
 
-        return new OkObjectResult("Data uploaded successfully.");
+        // Return the raw SupplyChainData entities that were uploaded
+        return new OkObjectResult(dataList);
     }
 
 
@@ -133,7 +204,7 @@ public class UploadSupplyChainAudioTranscriptions
                         Tier = item.Tier,
                         SupplierID = item.SupplierID,
                         Stage = item.Stage,
-                        Material = item.Material,
+                        SupplierPart = item.SupplierPart,
                         Status = item.Status,
                         BarColor = item.Status?.ToLowerInvariant() switch
                         {
@@ -148,6 +219,8 @@ public class UploadSupplyChainAudioTranscriptions
                         QuantityProcured = item.QtyProcured.HasValue ? item.QtyProcured : null,
                         QuantityProduced = item.QtyProduced.HasValue ? item.QtyProduced : null,
                         QuantityRemaining = item.QtyRemaining.HasValue ? item.QtyRemaining : null,
+                        PlannedStartDate = item.PlannedStartDate,
+                        PlannedCompletionDate = item.PlannedCompletionDate,
                         RippleEffect = item.RippleEffect,
                         Timestamp = item.ReportedTime
                     });
@@ -155,6 +228,7 @@ public class UploadSupplyChainAudioTranscriptions
                 token = segment.ContinuationToken;
             } while (token != null);
 
+            _logger.LogInformation($"Retrieved {results.Count} supply chain records.");
             return new OkObjectResult(results);
         }
         catch (Exception ex)
@@ -349,7 +423,9 @@ public class UploadSupplyChainAudioTranscriptions
                 Supplier = result.SupplierID,
                 Tier = result.Tier,
                 Stage = result.Stage,
-                Material = result.Material,
+                SupplierPart = result.SupplierPart,
+                PlannedStartDate = result.PlannedStartDate,
+                PlannedCompletionDate = result.PlannedCompletionDate,
                 RippleEffect = result.RippleEffect
             };
 
@@ -1347,6 +1423,225 @@ string impactedNode)
         return new OkObjectResult(result);
     }
 
+    //[Function("StoreSupplyChainWarning")]
+    //public async Task StoreSupplyChainWarningAsync(
+    //    [Microsoft.Azure.Functions.Worker.QueueTrigger("supplychain-warnings", Connection = "scaudiotranscriptions")] string queueMessage)
+    //{
+    //    _logger.LogInformation("Processing supply chain warning from queue message.");
+
+    //    SupplyChainData? supplyChainData;
+    //    try
+    //    {
+    //        supplyChainData = System.Text.Json.JsonSerializer.Deserialize<SupplyChainData>(queueMessage,
+    //            new JsonSerializerOptions
+    //            {
+    //                PropertyNameCaseInsensitive = true
+    //            });
+    //    }
+    //    catch (System.Text.Json.JsonException ex)
+    //    {
+    //        _logger.LogError(ex, "Invalid JSON format in queue message.");
+    //        return;
+    //    }
+
+    //    if (supplyChainData == null)
+    //    {
+    //        _logger.LogError("Queue message could not be deserialized to SupplyChainData.");
+    //        return;
+    //    }
+
+    //    try
+    //    {
+    //        // Store the supply chain data as a warning in Cosmos DB
+    //        var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainData);
+    //        _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error storing supply chain warning from queue message.");
+    //    }
+    //}
+
+    [Function("StoreSupplyChainWarningDetailsQueue")]
+    public async Task StoreSupplyChainWarningDetailsAsync(
+        [QueueTrigger("supplychain-warnings", Connection = "scaudiotranscriptions")] string queueMessage)
+    {
+        _logger.LogInformation("Processing supply chain warning from queue message (queue trigger).");
+
+        SupplyChainData? supplyChainData;
+        try
+        {
+            supplyChainData = System.Text.Json.JsonSerializer.Deserialize<SupplyChainData>(queueMessage,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogError(ex, "Invalid JSON format in queue message.");
+            return;
+        }
+
+        if (supplyChainData == null)
+        {
+            _logger.LogError("Queue message could not be deserialized to SupplyChainData.");
+            return;
+        }
+
+
+        try
+        {            
+            // Get impacted node count data (similar to QueryImpactedNodeCount)
+            var impactedNodeData = await GetImpactedNodeCountAsync(supplyChainData.SupplierPart.SupplierPartName);
+
+            // Create combined warning object
+            var combinedWarning = new SupplyChainWarning
+            {
+                Id = Guid.NewGuid().ToString(),
+                PartitionKey = supplyChainData.SupplierID,
+                Supplier = supplyChainData?.SupplierID,
+                Tier = supplyChainData?.Tier,
+                Stage = supplyChainData?.Stage,
+                SupplierPart = supplyChainData?.SupplierPart,
+                OemPart = supplyChainData?.OemPart,
+                Status = supplyChainData?.Status,
+                RippleEffect = supplyChainData?.RippleEffect,
+                PlannedStartDate = supplyChainData?.PlannedStartDate,
+                PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
+                ReportedTime = supplyChainData?.ReportedTime,
+                ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
+                ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
+                ComponentCount = impactedNodeData?.ComponentCount,
+                BomSubItemCount = impactedNodeData?.BomSubItemCount,
+                BomItemCount = impactedNodeData?.BomItemCount,
+                MaterialBOMCount = impactedNodeData?.MaterialBOMCount
+            };
+
+            // Store the combined warning in Cosmos DB
+            var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(combinedWarning);
+            
+            _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
+            
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error storing supply chain warning.");
+            throw;
+        }
+    }
+
+    private async Task<SupplyChainData?> GetSupplyChainDataBySupplierIdAndStatusAsync(string supplierId, string status)
+    {
+        string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");
+        if (string.IsNullOrWhiteSpace(storageConnectionString))
+        {
+            _logger.LogError("connection string is null");
+            return null;
+        }
+
+        try
+        {
+            var storageAccount = CloudStorageAccount.Parse(storageConnectionString);
+            var tableClient = storageAccount.CreateCloudTableClient();
+            var table = tableClient.GetTableReference("SCAudioTranscriptions");
+            await table.CreateIfNotExistsAsync();
+
+            var supplierFilter = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, supplierId);
+            var statusFilter = TableQuery.GenerateFilterCondition("Status", QueryComparisons.Equal, status);
+            var combinedFilter = TableQuery.CombineFilters(supplierFilter, TableOperators.And, statusFilter);
+
+            var query = new TableQuery<SupplyChainData>().Where(combinedFilter).Take(1);
+            var segment = await table.ExecuteQuerySegmentedAsync(query, null);
+            return segment.Results.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading supply chain data from Azure Table Storage.");
+            return null;
+        }
+    }
+
+    private async Task<ImpactedNodeCount?> GetImpactedNodeCountAsync(string impactedNode)
+    {
+        string? neo4jUser = Environment.GetEnvironmentVariable("NEO4J_USER");
+        string? neo4jPassword = Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+        string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
+
+        if (string.IsNullOrWhiteSpace(neo4jUri) || string.IsNullOrWhiteSpace(neo4jUser) || string.IsNullOrWhiteSpace(neo4jPassword))
+        {
+            _logger.LogError("Neo4j connection information is missing in environment variables.");
+            return null;
+        }
+
+        var driver = GraphDatabase.Driver(neo4jUri, AuthTokens.Basic(neo4jUser, neo4jPassword));
+        var session = driver.AsyncSession();
+
+        var query = @"
+            MATCH (crm:ComponentRawMaterial {Name: $rawMaterialName})<- [r1:COMP_MADEOF_RAWMAT]-(c:Component)
+            <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
+            <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
+            <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
+            RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+            ";
+
+        var parameters = new Dictionary<string, object>
+        {
+            { "rawMaterialName", impactedNode }
+        };
+
+        try
+        {
+            var cursor = await session.RunAsync(query, parameters);
+            var records = await cursor.ToListAsync();
+
+            // Count unique nodes by type
+            var uniqueComponentRawMaterials = records
+                .Select(r => r["crm"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var uniqueComponents = records
+                .Select(r => r["c"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var uniqueBomSubItems = records
+                .Select(r => r["bsi"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var uniqueBomItems = records
+                .Select(r => r["bi"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var uniqueMaterialBOMs = records
+                .Select(r => r["mb"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            return new ImpactedNodeCount
+            {
+                ComponentRawMaterialCount = uniqueComponentRawMaterials,
+                ComponentCount = uniqueComponents,
+                BomSubItemCount = uniqueBomSubItems,
+                BomItemCount = uniqueBomItems,
+                MaterialBOMCount = uniqueMaterialBOMs,
+                RawMaterialName = impactedNode
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while querying raw material graph count");
+            return null;
+        }
+        finally
+        {
+            await session.CloseAsync();
+        }
+    }
+
     private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
         if (subtierSupplier?.PartNumbers == null || subtierSupplier.PartNumbers.Count == 0)
@@ -1527,9 +1822,6 @@ string impactedNode)
         }
     }
 
-
-
-
     private async Task<string?> GetOemPartNumberForSupplierPartAsync(string supplierPart)
     {
         try
@@ -1550,8 +1842,6 @@ string impactedNode)
             return null;
         }
     }
-
-
 
 
     [Function("SupplierMinimalSignIn")]
@@ -2200,6 +2490,80 @@ string impactedNode)
         {
             _logger.LogError($"Error during calculation: {ex.Message}");
             return new BadRequestObjectResult($"Error: {ex.Message}");
+        }
+    }
+
+
+    [Function("GetSubtierSupplierWarnings")]
+    public async Task<IActionResult> GetSubtierSupplierWarnings(
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "supplychain/subtier-warnings")] HttpRequest req)
+    {
+        _logger.LogInformation("Retrieving subtier supplier warnings from Cosmos DB.");
+
+        // Cosmos DB connection details
+        string? cosmosDbConnectionString = Environment.GetEnvironmentVariable("CosmosDbConnectionString");
+        string databaseId = "ecc_alerts";
+        string containerId = "supplyChainWarnings";
+
+        if (string.IsNullOrWhiteSpace(cosmosDbConnectionString))
+        {
+            _logger.LogError("Cosmos DB connection string is missing.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+
+        // Get supplierId from query string
+        string? supplierId = req.Query["supplierId"];
+
+        try
+        {
+            var cosmosClient = new Microsoft.Azure.Cosmos.CosmosClient(cosmosDbConnectionString);
+            var container = cosmosClient.GetContainer(databaseId, containerId);
+
+            Microsoft.Azure.Cosmos.QueryDefinition query;
+            if (!string.IsNullOrWhiteSpace(supplierId))
+            {
+                query = new Microsoft.Azure.Cosmos.QueryDefinition("SELECT * FROM c WHERE c.DocumentType = @docType AND (c.SupplierId = @supplierId OR c.PartitionKey = @supplierId)")
+                    .WithParameter("@docType", "SupplyChainWarning")
+                    .WithParameter("@supplierId", supplierId);
+            }
+            else
+            {
+                query = new Microsoft.Azure.Cosmos.QueryDefinition("SELECT * FROM c WHERE c.DocumentType = @docType")
+                    .WithParameter("@docType", "SupplyChainWarning");
+            }
+
+            var iterator = container.GetItemQueryIterator<dynamic>(query);
+            var results = new List<object>();
+
+            while (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync();
+                foreach (var item in response)
+                {
+                    // Map to view model
+                    results.Add(new
+                    {
+                        supplier = (string?)item.SupplierId ?? (string?)item.PartitionKey,
+                        tier = (string?)item.Tier,
+                        stage = (string?)item.Stage,
+                        material = item.SupplierPart != null && item.SupplierPart.SupplierPartName != null ? (string?)item.SupplierPart.SupplierPartName : null,
+                        rippleEffect = (string?)item.RippleEffect,
+                        componentRawMaterialCount = item.ComponentRawMaterialCount != null ? (int?)item.ComponentRawMaterialCount : 0,
+                        componentCount = item.ComponentCount != null ? (int?)item.ComponentCount : 0,
+                        bomSubItemCount = item.BomSubItemCount != null ? (int?)item.BomSubItemCount : 0,
+                        bomItemCount = item.BomItemCount != null ? (int?)item.BomItemCount : 0,
+                        materialBOMCount = item.MaterialBOMCount != null ? (int?)item.MaterialBOMCount : 0,
+                        rawMaterialName = ((item.SupplierPart != null && item.SupplierPart.SupplierPartName != null) ? ((string)item.SupplierPart.SupplierPartName).Replace(" ", "-").ToLowerInvariant() : null)
+                    });
+                }
+            }
+
+            return new OkObjectResult(results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying Cosmos DB for subtier supplier warnings.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
     }
 
