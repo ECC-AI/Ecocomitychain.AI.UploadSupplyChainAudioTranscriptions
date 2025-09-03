@@ -108,5 +108,53 @@ namespace UploadSupplyChainAudioTranscriptions.Services
                 throw;
             }
         }
+
+        public async Task<string> StoreRiskAcknowledgmentAsync(string incidentId, object riskAcknowledgment)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(incidentId))
+                {
+                    throw new ArgumentNullException(nameof(incidentId));
+                }
+
+                if (riskAcknowledgment == null)
+                {
+                    throw new ArgumentNullException(nameof(riskAcknowledgment));
+                }
+
+                // Get the supplyChainRisks container
+                var risksContainer = _cosmosClient.GetContainer(DatabaseName, "supplyChainRisks");
+
+                // Create a document with additional metadata for Cosmos DB
+                var riskDocument = new
+                {
+                    id = Guid.NewGuid().ToString(),
+                    partitionKey = incidentId,
+                    incident_id = incidentId,
+                    riskAcknowledgment = riskAcknowledgment,
+                    acknowledgedAt = DateTimeOffset.UtcNow,
+                    documentType = "RiskAcknowledgment"
+                };
+
+                // Store the document in Cosmos DB
+                var response = await risksContainer.CreateItemAsync(
+                    riskDocument,
+                    new PartitionKey(riskDocument.partitionKey));
+
+                _logger.LogInformation($"Successfully stored risk acknowledgment with ID: {riskDocument.id} for incident: {incidentId}");
+                return riskDocument.id;
+            }
+            catch (CosmosException ex)
+            {
+                _logger.LogError(ex, $"Cosmos DB error while storing risk acknowledgment: {ex.Message}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Unexpected error while storing risk acknowledgment: {ex.Message}");
+                throw;
+            }
+        }
     }
 }

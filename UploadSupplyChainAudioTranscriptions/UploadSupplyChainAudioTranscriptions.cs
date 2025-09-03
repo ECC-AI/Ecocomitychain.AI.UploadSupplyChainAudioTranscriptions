@@ -1543,6 +1543,104 @@ string impactedNode)
         }
     }
 
+    [Function("AcknowledgeAsRisk")]
+    public async Task<IActionResult> AcknowledgeAsRiskAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        _logger.LogInformation("Processing acknowledge as risk request.");
+
+        IncidentSummary? incidentData;
+        try
+        {
+            incidentData = await System.Text.Json.JsonSerializer.DeserializeAsync<IncidentSummary>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize incident summary JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (incidentData == null)
+        {
+            return new BadRequestObjectResult("Incident summary data is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(incidentData.IncidentId))
+        {
+            return new BadRequestObjectResult("Incident ID is required.");
+        }
+
+        try
+        {
+            // Create risk acknowledgment response in the specified format
+            var riskAcknowledgment = new
+            {
+                incident_id = incidentData.IncidentId,
+                detected_at = incidentData.DetectedAt,
+                sector = incidentData.Sector,
+                subsector = incidentData.Subsector,
+                component = new
+                {
+                    name = incidentData.Component.Name,
+                    units_per_vehicle = incidentData.Component.UnitsPerVehicle,
+                    taxonomy = incidentData.Component.Taxonomy
+                },
+                lead_time_slip_weeks = incidentData.LeadTimeSlipWeeks,
+                lead_time_slip_tolerance_weeks = incidentData.LeadTimeSlipToleranceWeeks,
+                region = incidentData.Region,
+                root_cause_hypothesis = incidentData.RootCauseHypothesis,
+                urgency = incidentData.Urgency,
+                horizon_weeks = incidentData.HorizonWeeks,
+                impact_tier = incidentData.ImpactTier,
+                oem_Production_BatchWeek = incidentData.OemProductionBatchWeek,
+                impact_Material_Category = incidentData.ImpactMaterialCategory,
+                impact_Plant = incidentData.ImpactPlant,
+                free_text = incidentData.FreeText
+            };
+
+            // Log the acknowledgment for audit trail
+            _logger.LogInformation($"Risk acknowledged for incident {incidentData.IncidentId}: {System.Text.Json.JsonSerializer.Serialize(riskAcknowledgment)}");
+
+            // Store the risk acknowledgment in the database (could be extended to store in Cosmos DB)
+            await StoreRiskAcknowledgmentAsync(incidentData.IncidentId, riskAcknowledgment);
+
+            return new OkObjectResult(riskAcknowledgment);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error processing risk acknowledgment for incident {incidentData.IncidentId}.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    private async Task StoreRiskAcknowledgmentAsync(string incidentId, object acknowledgment)
+    {
+        try
+        {
+            // Serialize the acknowledgment data for logging
+            var acknowledgmentJson = System.Text.Json.JsonSerializer.Serialize(acknowledgment, new System.Text.Json.JsonSerializerOptions 
+            { 
+                WriteIndented = true 
+            });
+            
+            _logger.LogInformation($"Risk acknowledgment stored for incident {incidentId}: {acknowledgmentJson}");
+            
+            // Store the risk acknowledgment in Cosmos DB
+            await _cosmosDbService.StoreRiskAcknowledgmentAsync(incidentId, acknowledgment);
+            
+            _logger.LogInformation($"Successfully stored risk acknowledgment in Cosmos DB for incident {incidentId}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to store risk acknowledgment for incident {incidentId}");
+            throw;
+        }
+    }
+
     private async Task<SupplyChainData?> GetSupplyChainDataBySupplierIdAndStatusAsync(string supplierId, string status)
     {
         string? storageConnectionString = Environment.GetEnvironmentVariable("scaudiotranscriptions");

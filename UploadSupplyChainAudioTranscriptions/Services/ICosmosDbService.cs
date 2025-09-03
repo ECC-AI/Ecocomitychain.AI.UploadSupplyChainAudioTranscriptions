@@ -7,5 +7,6 @@ namespace UploadSupplyChainAudioTranscriptions.Services
     {
         Task<string> StoreSupplyChainWarningAsync(SupplyChainData supplyChainData);
         Task<string> StoreSupplyChainWarningAsync(SupplyChainWarning supplyChainWarning);
+        Task<string> StoreRiskAcknowledgmentAsync(string incidentId, object riskAcknowledgment);
     }
 }
