@@ -1273,19 +1273,16 @@ string impactedNode)
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
-                int partCount = supplierProfileRequest.PartNumbers.Count;
+                int partCount = supplierProfileRequest.SupplierPart != null ? 1 : 0;
                 List<SupplierPartDetail> supplierPartDetailColl = new List<SupplierPartDetail>();
-                if (partCount > 0)
+                if (partCount > 0 && supplierProfileRequest.SupplierPart != null)
                 {
-                    supplierProfileRequest.PartNumbers.ForEach(part =>
+                    var supplierPartDetails = new SupplierPartDetail
                     {
-                        var supplierPartDetails = new SupplierPartDetail
-                        {
-                            PartNumber = part,
-                            SupplierId = supplierId
-                        };
-                        supplierPartDetailColl.Add(supplierPartDetails);
-                    });
+                        PartNumber = supplierProfileRequest.SupplierPart.SupplierPartNumber,
+                        SupplierId = supplierId
+                    };
+                    supplierPartDetailColl.Add(supplierPartDetails);
                 }
 
                 try
@@ -1325,8 +1322,9 @@ string impactedNode)
                 try
                 {
                     int updatedMappings = 0;
-                    foreach (var partNumber in supplierProfileRequest.PartNumbers)
+                    if (supplierProfileRequest.SupplierPart != null && !string.IsNullOrEmpty(supplierProfileRequest.SupplierPart.SupplierPartNumber))
                     {
+                        var partNumber = supplierProfileRequest.SupplierPart.SupplierPartNumber;
                         try
                         {
                             // Query for existing mappings with this supplier part number
@@ -1385,7 +1383,9 @@ string impactedNode)
                 await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
                 {
                     LeadTimeInDays = 20,
-                    PartNumbers = supplierProfileRequest.PartNumbers,
+                    PartNumbers = supplierProfileRequest.SupplierPart != null && !string.IsNullOrEmpty(supplierProfileRequest.SupplierPart.SupplierPartNumber) 
+                        ? new List<string> { supplierProfileRequest.SupplierPart.SupplierPartNumber } 
+                        : new List<string>(),
                     SupplierId = supplierId,
                     SupplierName = supplierProfileRequest.SupplierName,
                     Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier) ? "Tier-N" : supplierProfileRequest.Tier

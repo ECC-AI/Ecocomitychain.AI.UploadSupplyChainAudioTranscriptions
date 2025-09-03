@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Microsoft.WindowsAzure.Storage.Table;
+using UploadSupplyChainAudioTranscriptions.Entities;
 
 namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
 {
@@ -13,7 +16,31 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
     {
         public required string SupplierName { get; set; }
         
-        public required List<string> PartNumbers { get; set; }
+        public string SupplierPartJson { get; set; }
+
+        // Property for easy access to SupplierPart (not stored in table)
+        [IgnoreProperty]
+        public SupplierPart SupplierPart
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(SupplierPartJson))
+                    return null;
+                try
+                {
+                    return JsonConvert.DeserializeObject<SupplierPart>(SupplierPartJson);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+            set
+            {
+                SupplierPartJson = value != null ? JsonConvert.SerializeObject(value) : string.Empty;
+            }
+        }
+
         public required string PlantName { get; set; }
         public string? Tier { get; set; } // Progressive Profiling
 
