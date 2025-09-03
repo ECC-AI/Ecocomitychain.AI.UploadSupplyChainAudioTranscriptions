@@ -17,6 +17,8 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.ViewModel
         public required string PlantName { get; set; }
         public string? Tier { get; set; } // Progressive Profiling
 
+        public int LeadTimeInDays { get; set; }
+
     }
 
     public class SupplierProfileCreationResponseModel
