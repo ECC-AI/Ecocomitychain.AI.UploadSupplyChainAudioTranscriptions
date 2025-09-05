@@ -109,6 +109,67 @@ namespace UploadSupplyChainAudioTranscriptions.Services
             }
         }
 
+        public async Task<List<string>> StoreSupplyChainWarningAsync(List<SupplyChainWarning> supplyChainWarnings)
+        {
+            var documentIds = new List<string>();
+            var errors = new List<string>();
+
+            if (supplyChainWarnings == null || !supplyChainWarnings.Any())
+            {
+                throw new ArgumentException("Supply chain warnings list cannot be null or empty.", nameof(supplyChainWarnings));
+            }
+
+            _logger.LogInformation($"Starting batch storage of {supplyChainWarnings.Count} supply chain warnings.");
+
+            foreach (var warning in supplyChainWarnings)
+            {
+                try
+                {
+                    if (warning == null)
+                    {
+                        _logger.LogWarning("Skipping null supply chain warning in the list.");
+                        continue;
+                    }
+
+                    // Set partition key if not already set
+                    if (string.IsNullOrEmpty(warning.PartitionKey))
+                    {
+                        warning.PartitionKey = warning.Supplier ?? "unknown";
+                    }
+
+                    // Store the supply chain warning document in Cosmos DB
+                    var response = await _container.CreateItemAsync(
+                        warning,
+                        new PartitionKey(warning.PartitionKey));
+
+                    documentIds.Add(warning.Id);
+                    _logger.LogInformation($"Successfully stored supply chain warning with ID: {warning.Id}");
+                }
+                catch (CosmosException ex)
+                {
+                    var errorMessage = $"Cosmos DB error while storing supply chain warning {warning?.Id}: {ex.Message}";
+                    _logger.LogError(ex, errorMessage);
+                    errors.Add(errorMessage);
+                }
+                catch (Exception ex)
+                {
+                    var errorMessage = $"Unexpected error while storing supply chain warning {warning?.Id}: {ex.Message}";
+                    _logger.LogError(ex, errorMessage);
+                    errors.Add(errorMessage);
+                }
+            }
+
+            _logger.LogInformation($"Batch storage completed. Successfully stored: {documentIds.Count}, Errors: {errors.Count}");
+
+            if (errors.Any())
+            {
+                var combinedErrorMessage = string.Join("; ", errors);
+                throw new Exception($"Some warnings failed to store. Errors: {combinedErrorMessage}");
+            }
+
+            return documentIds;
+        }
+
         public async Task<string> StoreRiskAcknowledgmentAsync(string incidentId, object riskAcknowledgment)
         {
             try

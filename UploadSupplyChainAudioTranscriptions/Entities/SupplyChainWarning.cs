@@ -31,6 +31,11 @@ namespace UploadSupplyChainAudioTranscriptions.Entities
         public int? BomSubItemCount { get; set; }
         public int? BomItemCount { get; set; }
         public int? MaterialBOMCount { get; set; }
+        public int? PlantCount { get; set; }
+        public List<string>? PlantNames { get; set; }
+        
+        // Plant identification for multi-plant scenarios
+        public string? PlantId { get; set; }
         
         // Additional metadata for the warning
         public string WarningType { get; set; } = "SupplyChainDisruption";

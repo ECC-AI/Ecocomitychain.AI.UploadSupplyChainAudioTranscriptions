@@ -839,7 +839,10 @@ string impactedNode)
                     <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
                     <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
                     <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
-                    RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+                    <- [r5: PRD_HAS_MATERIAL_BOM]-(pr:Product)
+                    - [r6:PRD_IN_PRODUCTPLANT]->(pp:ProductPlant)
+                    <- [r7:HAS_PRODUCTPLANT]-(p:Plant)
+                    RETURN crm, c, bsi, bi, mb ,p, r1, r2, r3,r4, r7
                     ";
 
         var parameters = new Dictionary<string, object>
@@ -878,6 +881,18 @@ string impactedNode)
                 .Distinct()
                 .Count();
 
+            var uniquePlants = records
+                .Select(r => r["p"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var plantNames = records
+                .Select(r => r["p"].As<INode>())
+                .Where(node => node.Properties.ContainsKey("Name"))
+                .Select(node => node.Properties["Name"].As<string>())
+                .Distinct()
+                .ToList();
+
 
             var result = new ImpactedNodeCount
             {
@@ -886,10 +901,12 @@ string impactedNode)
                 BomSubItemCount = uniqueBomSubItems,
                 BomItemCount = uniqueBomItems,
                 MaterialBOMCount = uniqueMaterialBOMs,
+                PlantCount = uniquePlants,
+                PlantNames = plantNames,
                 RawMaterialName = impactedNode
             };
 
-            _logger.LogInformation($"Found {uniqueComponentRawMaterials} ComponentRawMaterials, {uniqueComponents} Components, {uniqueBomSubItems} BomSubItems, {uniqueBomItems} BomItems, {uniqueMaterialBOMs} MaterialBOMs for impacted node: {impactedNode}");
+            _logger.LogInformation($"Found {uniqueComponentRawMaterials} ComponentRawMaterials, {uniqueComponents} Components, {uniqueBomSubItems} BomSubItems, {uniqueBomItems} BomItems, {uniqueMaterialBOMs} MaterialBOMs, {uniquePlants} Plants ({string.Join(", ", plantNames)}) for impacted node: {impactedNode}");
 
             return new OkObjectResult(result);
         }
@@ -1507,39 +1524,171 @@ string impactedNode)
             // Get impacted node count data (similar to QueryImpactedNodeCount)
             var impactedNodeData = await GetImpactedNodeCountAsync(supplyChainData.SupplierPart.SupplierPartName);
 
-            // Create combined warning object
-            var combinedWarning = new SupplyChainWarning
-            {
-                Id = Guid.NewGuid().ToString(),
-                PartitionKey = supplyChainData.SupplierID,
-                Supplier = supplyChainData?.SupplierID,
-                Tier = supplyChainData?.Tier,
-                Stage = supplyChainData?.Stage,
-                SupplierPart = supplyChainData?.SupplierPart,
-                OemPart = supplyChainData?.OemPart,
-                Status = supplyChainData?.Status,
-                RippleEffect = supplyChainData?.RippleEffect,
-                PlannedStartDate = supplyChainData?.PlannedStartDate,
-                PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
-                ReportedTime = supplyChainData?.ReportedTime,
-                ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
-                ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
-                ComponentCount = impactedNodeData?.ComponentCount,
-                BomSubItemCount = impactedNodeData?.BomSubItemCount,
-                BomItemCount = impactedNodeData?.BomItemCount,
-                MaterialBOMCount = impactedNodeData?.MaterialBOMCount
-            };
+            // Create list to hold supply chain warnings
+            var supplyChainWarnings = new List<SupplyChainWarning>();
 
-            // Store the combined warning in Cosmos DB
-            var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(combinedWarning);
-            
-            _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
+            // Check if there are multiple plants
+            if (impactedNodeData?.PlantCount > 1 && impactedNodeData?.PlantNames != null && impactedNodeData.PlantNames.Count > 1)
+            {
+                _logger.LogInformation($"Multiple plants detected ({impactedNodeData.PlantCount}). Creating separate warning for each plant: {string.Join(", ", impactedNodeData.PlantNames)}");
+                
+                // Create a separate warning for each plant
+                foreach (var plantName in impactedNodeData.PlantNames)
+                {
+                    var combinedWarning = new SupplyChainWarning
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        PartitionKey = supplyChainData.SupplierID, // Keep consistent with container partition key
+                        Supplier = supplyChainData?.SupplierID,
+                        Tier = supplyChainData?.Tier,
+                        Stage = supplyChainData?.Stage,
+                        SupplierPart = supplyChainData?.SupplierPart,
+                        OemPart = supplyChainData?.OemPart,
+                        Status = supplyChainData?.Status,
+                        RippleEffect = supplyChainData?.RippleEffect,
+                        PlannedStartDate = supplyChainData?.PlannedStartDate,
+                        PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
+                        ReportedTime = supplyChainData?.ReportedTime,
+                        ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
+                        ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
+                        ComponentCount = impactedNodeData?.ComponentCount,
+                        BomSubItemCount = impactedNodeData?.BomSubItemCount,
+                        BomItemCount = impactedNodeData?.BomItemCount,
+                        MaterialBOMCount = impactedNodeData?.MaterialBOMCount,
+                        PlantCount = 1, // Each warning represents one plant
+                        PlantNames = new List<string> { plantName }, // Single plant for this warning
+                        PlantId = plantName // Set the specific plant ID for this warning
+                    };
+                    
+                    supplyChainWarnings.Add(combinedWarning);
+                }
+                
+                // Store the batch of warnings in Cosmos DB
+                var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+                
+                _logger.LogInformation($"Successfully stored {documentIds.Count} supply chain warnings for {impactedNodeData.PlantCount} plants. Document IDs: {string.Join(", ", documentIds)}");
+            }
+            else
+            {
+                // Single plant or no plant data - create one warning as before
+                var plantName = impactedNodeData?.PlantNames?.FirstOrDefault();
+                var combinedWarning = new SupplyChainWarning
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    PartitionKey = supplyChainData.SupplierID,
+                    Supplier = supplyChainData?.SupplierID,
+                    Tier = supplyChainData?.Tier,
+                    Stage = supplyChainData?.Stage,
+                    SupplierPart = supplyChainData?.SupplierPart,
+                    OemPart = supplyChainData?.OemPart,
+                    Status = supplyChainData?.Status,
+                    RippleEffect = supplyChainData?.RippleEffect,
+                    PlannedStartDate = supplyChainData?.PlannedStartDate,
+                    PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
+                    ReportedTime = supplyChainData?.ReportedTime,
+                    ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
+                    ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
+                    ComponentCount = impactedNodeData?.ComponentCount,
+                    BomSubItemCount = impactedNodeData?.BomSubItemCount,
+                    BomItemCount = impactedNodeData?.BomItemCount,
+                    MaterialBOMCount = impactedNodeData?.MaterialBOMCount,
+                    PlantCount = impactedNodeData?.PlantCount,
+                    PlantNames = impactedNodeData?.PlantNames,
+                    PlantId = plantName // Set the plant ID for single plant scenarios
+                };
+
+                supplyChainWarnings.Add(combinedWarning);
+                
+                // Store the single warning in Cosmos DB
+                var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+                
+                _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentIds.FirstOrDefault()}");
+            }
             
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error storing supply chain warning.");
             throw;
+        }
+    }
+
+    [Function("StoreBatchSupplyChainWarnings")]
+    public async Task<IActionResult> StoreBatchSupplyChainWarningsAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        _logger.LogInformation("Processing batch supply chain warnings storage request.");
+
+        List<SupplyChainWarning>? supplyChainWarnings;
+        try
+        {
+            supplyChainWarnings = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainWarning>>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize supply chain warnings JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (supplyChainWarnings == null || !supplyChainWarnings.Any())
+        {
+            return new BadRequestObjectResult("At least one supply chain warning is required.");
+        }
+
+        try
+        {
+            // Validate and enrich warnings if needed
+            foreach (var warning in supplyChainWarnings)
+            {
+                if (string.IsNullOrEmpty(warning.Id))
+                {
+                    warning.Id = Guid.NewGuid().ToString();
+                }
+
+                if (string.IsNullOrEmpty(warning.PartitionKey))
+                {
+                    warning.PartitionKey = warning.Supplier ?? "unknown";
+                }
+
+                // Set default values if not provided
+                if (warning.CreatedAt == default)
+                {
+                    warning.CreatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
+            // Store the batch of warnings in Cosmos DB
+            var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+            
+            _logger.LogInformation($"Successfully stored {documentIds.Count} supply chain warnings.");
+
+            var result = new
+            {
+                Success = true,
+                StoredCount = documentIds.Count,
+                TotalRequested = supplyChainWarnings.Count,
+                DocumentIds = documentIds,
+                Message = $"Successfully stored {documentIds.Count} out of {supplyChainWarnings.Count} supply chain warnings."
+            };
+
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error storing batch supply chain warnings.");
+            
+            var errorResult = new
+            {
+                Success = false,
+                Error = "Failed to store supply chain warnings",
+                Details = ex.Message
+            };
+
+            return new ObjectResult(errorResult) { StatusCode = 500 };
         }
     }
 
@@ -1692,7 +1841,10 @@ string impactedNode)
             <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
             <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
             <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
-            RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+            <- [r5: PRD_HAS_MATERIAL_BOM]-(pr:Product)
+            - [r6:PRD_IN_PRODUCTPLANT]->(pp:ProductPlant)
+            <- [r7:HAS_PRODUCTPLANT]-(p:Plant)
+            RETURN crm, c, bsi, bi, mb ,p, r1, r2, r3,r4, r7
             ";
 
         var parameters = new Dictionary<string, object>
@@ -1731,6 +1883,18 @@ string impactedNode)
                 .Distinct()
                 .Count();
 
+            var uniquePlants = records
+                .Select(r => r["p"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var plantNames = records
+                .Select(r => r["p"].As<INode>())
+                .Where(node => node.Properties.ContainsKey("Plant"))
+                .Select(node => node.Properties["Plant"].As<string>())
+                .Distinct()
+                .ToList();
+
             return new ImpactedNodeCount
             {
                 ComponentRawMaterialCount = uniqueComponentRawMaterials,
@@ -1738,6 +1902,8 @@ string impactedNode)
                 BomSubItemCount = uniqueBomSubItems,
                 BomItemCount = uniqueBomItems,
                 MaterialBOMCount = uniqueMaterialBOMs,
+                PlantCount = uniquePlants,
+                PlantNames = plantNames,
                 RawMaterialName = impactedNode
             };
         }
@@ -2663,6 +2829,8 @@ string impactedNode)
                         bomSubItemCount = item.BomSubItemCount != null ? (int?)item.BomSubItemCount : 0,
                         bomItemCount = item.BomItemCount != null ? (int?)item.BomItemCount : 0,
                         materialBOMCount = item.MaterialBOMCount != null ? (int?)item.MaterialBOMCount : 0,
+                        plantCount = item.PlantCount != null ? (int?)item.PlantCount : 0,
+                        plantNames = item.PlantNames != null ? item.PlantNames : new List<string>(),
                         rawMaterialName = ((item.SupplierPart != null && item.SupplierPart.SupplierPartName != null) ? ((string)item.SupplierPart.SupplierPartName).Replace(" ", "-").ToLowerInvariant() : null)
                     });
                 }
