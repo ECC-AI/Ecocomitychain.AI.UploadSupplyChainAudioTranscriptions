@@ -1274,6 +1274,12 @@ string impactedNode)
                     continue;
                 }
 
+                if (string.IsNullOrWhiteSpace(supplierProfileRequest.PlantName))
+                {
+                    errors.Add($"PlantName is required for supplier: {supplierProfileRequest.SupplierName}.");
+                    continue;
+                }
+
                 string supplierId = $"Supp-{Guid.NewGuid().ToString("N")[..4]}";
                 string plantId = $"Plant-{Guid.NewGuid().ToString("N")[..4]}";
                 var profileEntity = new SupplierProfileBase
@@ -1287,6 +1293,7 @@ string impactedNode)
                 {
                     SupplierId = supplierId,
                     PlantId = plantId,
+                    PlantName = supplierProfileRequest.PlantName,
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
@@ -1299,6 +1306,7 @@ string impactedNode)
                             var supplierPartDetails = new SupplierPartDetail
                             {
                                 PartNumber = part.SupplierPartNumber,
+                                PartName = part.SupplierPartName,
                                 SupplierId = supplierId
                             };
                             supplierPartDetailColl.Add(supplierPartDetails);
@@ -1403,18 +1411,24 @@ string impactedNode)
 
                 // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
                 // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
-                // To-Do: The leadtime is hardcoded for now (20 days ~ 3 weeks). This has to be gotten from the supplier, through progressive profiling
                 // Note: The supplier might be having different lead times for different parts and the plants they supply to
                 // To-Do: Pertaining to the issue mentioned in the previous point, we need to add a 3 way connection between the part#, deliveryPlant and the leadtime value
+                
+                // Log supplier part details for debugging
+                _logger.LogInformation($"Processing supplier {supplierProfileRequest.SupplierName}: SupplierPart collection has {supplierProfileRequest.SupplierPart?.Count ?? 0} items");
+                
+                // Map SupplierPart property from SupplierProfileCreationRequestModel to DTO
+                var validSupplierParts = supplierProfileRequest.SupplierPart?.Where(p => 
+                    !string.IsNullOrWhiteSpace(p.SupplierPartNumber) && 
+                    !string.IsNullOrWhiteSpace(p.SupplierPartName))
+                    .ToList() ?? new List<SupplierPart>();
+                
+                _logger.LogInformation($"Supplier {supplierProfileRequest.SupplierName} has {validSupplierParts.Count} valid supplier parts: [{string.Join(", ", validSupplierParts.Select(p => $"{p.SupplierPartNumber}:{p.SupplierPartName}"))}]");
+
                 await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
                 {
-                    LeadTimeInDays = 20,
-                    PartNumbers = supplierProfileRequest.SupplierPart != null
-                        ? supplierProfileRequest.SupplierPart
-                            .Where(p => !string.IsNullOrEmpty(p.SupplierPartNumber))
-                            .Select(p => p.SupplierPartNumber)
-                            .ToList()
-                        : new List<string>(),
+                    LeadTimeInDays = supplierProfileRequest.LeadTimeInDays > 0 ? supplierProfileRequest.LeadTimeInDays : 20,
+                    SupplierParts = validSupplierParts,
                     SupplierId = supplierId,
                     SupplierName = supplierProfileRequest.SupplierName,
                     Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier) ? "Tier-N" : supplierProfileRequest.Tier
@@ -1920,43 +1934,43 @@ string impactedNode)
 
     private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
-        if (subtierSupplier?.PartNumbers == null || subtierSupplier.PartNumbers.Count == 0)
+        if (subtierSupplier?.SupplierParts == null || subtierSupplier.SupplierParts.Count == 0)
         {
-            _logger.LogWarning("No part numbers provided for supplier {SupplierId}.", subtierSupplier?.SupplierId);
+            _logger.LogWarning("No supplier parts provided for supplier {SupplierId}.", subtierSupplier?.SupplierId);
             return false;
         }
 
         _logger.LogInformation("Creating Neo4j graph nodes for supplier {SupplierId} with {PartCount} parts",
-            subtierSupplier.SupplierId, subtierSupplier.PartNumbers.Count);
+            subtierSupplier.SupplierId, subtierSupplier.SupplierParts.Count);
 
         // Build supplierPart -> oemPart map from Azure Table "OemSupplierMapping"
         var oemMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var spn in subtierSupplier.PartNumbers)
+        foreach (var supplierPart in subtierSupplier.SupplierParts)
         {
             try
             {
-                string filter = $"SupplierPartNumber eq '{spn}'";
+                string filter = $"SupplierPartNumber eq '{supplierPart.SupplierPartNumber}'";
                 var mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
 
                 foreach (var mapping in mappings)
                 {
                     if (!string.IsNullOrWhiteSpace(mapping.OemPartNumber))
                     {
-                        oemMap[spn] = mapping.OemPartNumber;
-                        _logger.LogInformation("Found OEM mapping: {SupplierPart} -> {OemPart}", spn, mapping.OemPartNumber);
+                        oemMap[supplierPart.SupplierPartNumber] = mapping.OemPartNumber;
+                        _logger.LogInformation("Found OEM mapping: {SupplierPart} -> {OemPart}", supplierPart.SupplierPartNumber, mapping.OemPartNumber);
                         break;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Mapping lookup failed for SupplierPart {SupplierPartNumber}", spn);
+                _logger.LogWarning(ex, "Mapping lookup failed for SupplierPart {SupplierPartNumber}", supplierPart.SupplierPartNumber);
             }
         }
 
-        _logger.LogInformation("Found {MappingCount} OEM mappings out of {PartCount} parts", oemMap.Count, subtierSupplier.PartNumbers.Count);
+        _logger.LogInformation("Found {MappingCount} OEM mappings out of {PartCount} parts", oemMap.Count, subtierSupplier.SupplierParts.Count);
 
-        // Cypher query to create supplier and parts
+        // Cypher query to create supplier and parts with enhanced part information
         var cypher = @"
     MERGE (s:SubtierSupplier { SupplierId: $supplierId })
     SET s.SupplierName = $supplierName,
@@ -1966,19 +1980,20 @@ string impactedNode)
         s.UpdatedAt = datetime()
     
     WITH s
-    UNWIND $partNumbers AS partNumber
-    MERGE (sp:SupplierPart { PartNumber: partNumber })
+    UNWIND $supplierParts AS supplierPartData
+    MERGE (sp:SupplierPart { PartNumber: supplierPartData.SupplierPartNumber, PartName: supplierPartData.SupplierPartName })
     SET sp.CreatedAt = CASE WHEN sp.CreatedAt IS NULL THEN datetime() ELSE sp.CreatedAt END,
         sp.UpdatedAt = datetime()
     
-    WITH s, sp, partNumber
+    WITH s, sp, supplierPartData
     MERGE (s)-[r:SUPPLIES]->(sp)
     SET r.CreatedAt = datetime()
     
-    WITH s, collect(sp) as supplierParts, collect(partNumber) as partNumbers
+    WITH s, collect(sp) as supplierParts, collect(supplierPartData.SupplierPartNumber) as partNumbers, collect(supplierPartData.SupplierPartName) as partNames
     RETURN s.SupplierId as supplierId, 
            SIZE(supplierParts) as partsCreated,
-           partNumbers as createdPartNumbers
+           partNumbers as createdPartNumbers,
+           partNames as createdPartNames
     ";
 
         var parameters = new Dictionary<string, object>
@@ -1986,8 +2001,12 @@ string impactedNode)
         { "supplierId", subtierSupplier.SupplierId },
         { "supplierName", subtierSupplier.SupplierName },
         { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
-        { "partNumbers", subtierSupplier.PartNumbers },
-        { "supplierTier", subtierSupplier.Tier }
+        { "supplierParts", subtierSupplier.SupplierParts.Select(p => new Dictionary<string, object>
+            {
+                { "SupplierPartNumber", p.SupplierPartNumber ?? string.Empty },
+                { "SupplierPartName", p.SupplierPartName ?? string.Empty }
+            }).ToList() },
+        { "supplierTier", subtierSupplier.Tier ?? string.Empty }
     };
 
         string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
@@ -2016,8 +2035,13 @@ string impactedNode)
                     var record = records.First();
                     var partsCreated = record["partsCreated"].As<int>();
                     var createdPartNumbers = record["createdPartNumbers"].As<List<object>>().Select(x => x.ToString()).ToList();
-                    _logger.LogInformation("Successfully created supplier {SupplierId} with {PartsCreated} parts in Neo4j: [{PartNumbers}]",
-                        subtierSupplier.SupplierId, partsCreated, string.Join(", ", createdPartNumbers));
+                    var createdPartNames = record["createdPartNames"].As<List<object>>().Select(x => x.ToString()).ToList();
+                    
+                    // Create combined part info for logging
+                    var partDetails = createdPartNumbers.Zip(createdPartNames, (number, name) => $"{number}:{name}").ToList();
+                    
+                    _logger.LogInformation("Successfully created supplier {SupplierId} with {PartsCreated} parts in Neo4j: [{PartDetails}]",
+                        subtierSupplier.SupplierId, partsCreated, string.Join(", ", partDetails));
                 }
 
                 // Connect to existing nodes instead of creating OEMPart nodes
