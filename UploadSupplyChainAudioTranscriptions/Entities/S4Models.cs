@@ -108,6 +108,8 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
         public int BomSubItemCount { get; set; }
         public int BomItemCount { get; set; }
         public int MaterialBOMCount { get; set; }
+        public int PlantCount { get; set; }
+        public List<string> PlantNames { get; set; } = new List<string>();
         public string RawMaterialName { get; set; }
     }
 }

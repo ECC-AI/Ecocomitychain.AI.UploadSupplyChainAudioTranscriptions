@@ -113,6 +113,7 @@ namespace Ecocomitychain.AI.UploadSupplyChainAudioTranscriptions.Entities
     {
         public string SupplierId { get; set; }
         public string? PartNumber { get; set; }
+        public string? PartName { get; set; }
         public string? PartDescription { get; set; }
 
         // Azure Table Storage properties

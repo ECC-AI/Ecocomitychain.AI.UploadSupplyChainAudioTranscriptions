@@ -839,7 +839,10 @@ string impactedNode)
                     <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
                     <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
                     <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
-                    RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+                    <- [r5: PRD_HAS_MATERIAL_BOM]-(pr:Product)
+                    - [r6:PRD_IN_PRODUCTPLANT]->(pp:ProductPlant)
+                    <- [r7:HAS_PRODUCTPLANT]-(p:Plant)
+                    RETURN crm, c, bsi, bi, mb ,p, r1, r2, r3,r4, r7
                     ";
 
         var parameters = new Dictionary<string, object>
@@ -878,6 +881,18 @@ string impactedNode)
                 .Distinct()
                 .Count();
 
+            var uniquePlants = records
+                .Select(r => r["p"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var plantNames = records
+                .Select(r => r["p"].As<INode>())
+                .Where(node => node.Properties.ContainsKey("Name"))
+                .Select(node => node.Properties["Name"].As<string>())
+                .Distinct()
+                .ToList();
+
 
             var result = new ImpactedNodeCount
             {
@@ -886,10 +901,12 @@ string impactedNode)
                 BomSubItemCount = uniqueBomSubItems,
                 BomItemCount = uniqueBomItems,
                 MaterialBOMCount = uniqueMaterialBOMs,
+                PlantCount = uniquePlants,
+                PlantNames = plantNames,
                 RawMaterialName = impactedNode
             };
 
-            _logger.LogInformation($"Found {uniqueComponentRawMaterials} ComponentRawMaterials, {uniqueComponents} Components, {uniqueBomSubItems} BomSubItems, {uniqueBomItems} BomItems, {uniqueMaterialBOMs} MaterialBOMs for impacted node: {impactedNode}");
+            _logger.LogInformation($"Found {uniqueComponentRawMaterials} ComponentRawMaterials, {uniqueComponents} Components, {uniqueBomSubItems} BomSubItems, {uniqueBomItems} BomItems, {uniqueMaterialBOMs} MaterialBOMs, {uniquePlants} Plants ({string.Join(", ", plantNames)}) for impacted node: {impactedNode}");
 
             return new OkObjectResult(result);
         }
@@ -1257,6 +1274,12 @@ string impactedNode)
                     continue;
                 }
 
+                if (string.IsNullOrWhiteSpace(supplierProfileRequest.PlantName))
+                {
+                    errors.Add($"PlantName is required for supplier: {supplierProfileRequest.SupplierName}.");
+                    continue;
+                }
+
                 string supplierId = $"Supp-{Guid.NewGuid().ToString("N")[..4]}";
                 string plantId = $"Plant-{Guid.NewGuid().ToString("N")[..4]}";
                 var profileEntity = new SupplierProfileBase
@@ -1270,6 +1293,7 @@ string impactedNode)
                 {
                     SupplierId = supplierId,
                     PlantId = plantId,
+                    PlantName = supplierProfileRequest.PlantName,
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
@@ -1282,6 +1306,7 @@ string impactedNode)
                             var supplierPartDetails = new SupplierPartDetail
                             {
                                 PartNumber = part.SupplierPartNumber,
+                                PartName = part.SupplierPartName,
                                 SupplierId = supplierId
                             };
                             supplierPartDetailColl.Add(supplierPartDetails);
@@ -1386,18 +1411,24 @@ string impactedNode)
 
                 // To-Do: Code snippet to post the supplier profile creation message (with data) to Azure storage queues
                 // To-Do: For the time being we can create the Supplier node from here (to be refactored sooner than later)
-                // To-Do: The leadtime is hardcoded for now (20 days ~ 3 weeks). This has to be gotten from the supplier, through progressive profiling
                 // Note: The supplier might be having different lead times for different parts and the plants they supply to
                 // To-Do: Pertaining to the issue mentioned in the previous point, we need to add a 3 way connection between the part#, deliveryPlant and the leadtime value
+                
+                // Log supplier part details for debugging
+                _logger.LogInformation($"Processing supplier {supplierProfileRequest.SupplierName}: SupplierPart collection has {supplierProfileRequest.SupplierPart?.Count ?? 0} items");
+                
+                // Map SupplierPart property from SupplierProfileCreationRequestModel to DTO
+                var validSupplierParts = supplierProfileRequest.SupplierPart?.Where(p => 
+                    !string.IsNullOrWhiteSpace(p.SupplierPartNumber) && 
+                    !string.IsNullOrWhiteSpace(p.SupplierPartName))
+                    .ToList() ?? new List<SupplierPart>();
+                
+                _logger.LogInformation($"Supplier {supplierProfileRequest.SupplierName} has {validSupplierParts.Count} valid supplier parts: [{string.Join(", ", validSupplierParts.Select(p => $"{p.SupplierPartNumber}:{p.SupplierPartName}"))}]");
+
                 await CreateSubtierSupplierGraphNodeAsync(new SubtierSupplierDTO
                 {
-                    LeadTimeInDays = 20,
-                    PartNumbers = supplierProfileRequest.SupplierPart != null
-                        ? supplierProfileRequest.SupplierPart
-                            .Where(p => !string.IsNullOrEmpty(p.SupplierPartNumber))
-                            .Select(p => p.SupplierPartNumber)
-                            .ToList()
-                        : new List<string>(),
+                    LeadTimeInDays = supplierProfileRequest.LeadTimeInDays > 0 ? supplierProfileRequest.LeadTimeInDays : 20,
+                    SupplierParts = validSupplierParts,
                     SupplierId = supplierId,
                     SupplierName = supplierProfileRequest.SupplierName,
                     Tier = string.IsNullOrEmpty(supplierProfileRequest.Tier) ? "Tier-N" : supplierProfileRequest.Tier
@@ -1507,38 +1538,268 @@ string impactedNode)
             // Get impacted node count data (similar to QueryImpactedNodeCount)
             var impactedNodeData = await GetImpactedNodeCountAsync(supplyChainData.SupplierPart.SupplierPartName);
 
-            // Create combined warning object
-            var combinedWarning = new SupplyChainWarning
-            {
-                Id = Guid.NewGuid().ToString(),
-                PartitionKey = supplyChainData.SupplierID,
-                Supplier = supplyChainData?.SupplierID,
-                Tier = supplyChainData?.Tier,
-                Stage = supplyChainData?.Stage,
-                SupplierPart = supplyChainData?.SupplierPart,
-                OemPart = supplyChainData?.OemPart,
-                Status = supplyChainData?.Status,
-                RippleEffect = supplyChainData?.RippleEffect,
-                PlannedStartDate = supplyChainData?.PlannedStartDate,
-                PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
-                ReportedTime = supplyChainData?.ReportedTime,
-                ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
-                ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
-                ComponentCount = impactedNodeData?.ComponentCount,
-                BomSubItemCount = impactedNodeData?.BomSubItemCount,
-                BomItemCount = impactedNodeData?.BomItemCount,
-                MaterialBOMCount = impactedNodeData?.MaterialBOMCount
-            };
+            // Create list to hold supply chain warnings
+            var supplyChainWarnings = new List<SupplyChainWarning>();
 
-            // Store the combined warning in Cosmos DB
-            var documentId = await _cosmosDbService.StoreSupplyChainWarningAsync(combinedWarning);
-            
-            _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentId}");
+            // Check if there are multiple plants
+            if (impactedNodeData?.PlantCount > 1 && impactedNodeData?.PlantNames != null && impactedNodeData.PlantNames.Count > 1)
+            {
+                _logger.LogInformation($"Multiple plants detected ({impactedNodeData.PlantCount}). Creating separate warning for each plant: {string.Join(", ", impactedNodeData.PlantNames)}");
+                
+                // Create a separate warning for each plant
+                foreach (var plantName in impactedNodeData.PlantNames)
+                {
+                    var combinedWarning = new SupplyChainWarning
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        PartitionKey = supplyChainData.SupplierID, // Keep consistent with container partition key
+                        Supplier = supplyChainData?.SupplierID,
+                        Tier = supplyChainData?.Tier,
+                        Stage = supplyChainData?.Stage,
+                        SupplierPart = supplyChainData?.SupplierPart,
+                        OemPart = supplyChainData?.OemPart,
+                        Status = supplyChainData?.Status,
+                        RippleEffect = supplyChainData?.RippleEffect,
+                        PlannedStartDate = supplyChainData?.PlannedStartDate,
+                        PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
+                        ReportedTime = supplyChainData?.ReportedTime,
+                        ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
+                        ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
+                        ComponentCount = impactedNodeData?.ComponentCount,
+                        BomSubItemCount = impactedNodeData?.BomSubItemCount,
+                        BomItemCount = impactedNodeData?.BomItemCount,
+                        MaterialBOMCount = impactedNodeData?.MaterialBOMCount,
+                        PlantCount = 1, // Each warning represents one plant
+                        PlantNames = new List<string> { plantName }, // Single plant for this warning
+                        PlantId = plantName // Set the specific plant ID for this warning
+                    };
+                    
+                    supplyChainWarnings.Add(combinedWarning);
+                }
+                
+                // Store the batch of warnings in Cosmos DB
+                var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+                
+                _logger.LogInformation($"Successfully stored {documentIds.Count} supply chain warnings for {impactedNodeData.PlantCount} plants. Document IDs: {string.Join(", ", documentIds)}");
+            }
+            else
+            {
+                // Single plant or no plant data - create one warning as before
+                var plantName = impactedNodeData?.PlantNames?.FirstOrDefault();
+                var combinedWarning = new SupplyChainWarning
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    PartitionKey = supplyChainData.SupplierID,
+                    Supplier = supplyChainData?.SupplierID,
+                    Tier = supplyChainData?.Tier,
+                    Stage = supplyChainData?.Stage,
+                    SupplierPart = supplyChainData?.SupplierPart,
+                    OemPart = supplyChainData?.OemPart,
+                    Status = supplyChainData?.Status,
+                    RippleEffect = supplyChainData?.RippleEffect,
+                    PlannedStartDate = supplyChainData?.PlannedStartDate,
+                    PlannedCompletionDate = supplyChainData?.PlannedCompletionDate,
+                    ReportedTime = supplyChainData?.ReportedTime,
+                    ImpactedNode = supplyChainData?.SupplierPart.SupplierPartName,
+                    ComponentRawMaterialCount = impactedNodeData?.ComponentRawMaterialCount,
+                    ComponentCount = impactedNodeData?.ComponentCount,
+                    BomSubItemCount = impactedNodeData?.BomSubItemCount,
+                    BomItemCount = impactedNodeData?.BomItemCount,
+                    MaterialBOMCount = impactedNodeData?.MaterialBOMCount,
+                    PlantCount = impactedNodeData?.PlantCount,
+                    PlantNames = impactedNodeData?.PlantNames,
+                    PlantId = plantName // Set the plant ID for single plant scenarios
+                };
+
+                supplyChainWarnings.Add(combinedWarning);
+                
+                // Store the single warning in Cosmos DB
+                var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+                
+                _logger.LogInformation($"Successfully stored supply chain warning with document ID: {documentIds.FirstOrDefault()}");
+            }
             
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error storing supply chain warning.");
+            throw;
+        }
+    }
+
+    [Function("StoreBatchSupplyChainWarnings")]
+    public async Task<IActionResult> StoreBatchSupplyChainWarningsAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        _logger.LogInformation("Processing batch supply chain warnings storage request.");
+
+        List<SupplyChainWarning>? supplyChainWarnings;
+        try
+        {
+            supplyChainWarnings = await System.Text.Json.JsonSerializer.DeserializeAsync<List<SupplyChainWarning>>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize supply chain warnings JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (supplyChainWarnings == null || !supplyChainWarnings.Any())
+        {
+            return new BadRequestObjectResult("At least one supply chain warning is required.");
+        }
+
+        try
+        {
+            // Validate and enrich warnings if needed
+            foreach (var warning in supplyChainWarnings)
+            {
+                if (string.IsNullOrEmpty(warning.Id))
+                {
+                    warning.Id = Guid.NewGuid().ToString();
+                }
+
+                if (string.IsNullOrEmpty(warning.PartitionKey))
+                {
+                    warning.PartitionKey = warning.Supplier ?? "unknown";
+                }
+
+                // Set default values if not provided
+                if (warning.CreatedAt == default)
+                {
+                    warning.CreatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
+            // Store the batch of warnings in Cosmos DB
+            var documentIds = await _cosmosDbService.StoreSupplyChainWarningAsync(supplyChainWarnings);
+            
+            _logger.LogInformation($"Successfully stored {documentIds.Count} supply chain warnings.");
+
+            var result = new
+            {
+                Success = true,
+                StoredCount = documentIds.Count,
+                TotalRequested = supplyChainWarnings.Count,
+                DocumentIds = documentIds,
+                Message = $"Successfully stored {documentIds.Count} out of {supplyChainWarnings.Count} supply chain warnings."
+            };
+
+            return new OkObjectResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error storing batch supply chain warnings.");
+            
+            var errorResult = new
+            {
+                Success = false,
+                Error = "Failed to store supply chain warnings",
+                Details = ex.Message
+            };
+
+            return new ObjectResult(errorResult) { StatusCode = 500 };
+        }
+    }
+
+    [Function("AcknowledgeAsRisk")]
+    public async Task<IActionResult> AcknowledgeAsRiskAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+    {
+        _logger.LogInformation("Processing acknowledge as risk request.");
+
+        IncidentSummary? incidentData;
+        try
+        {
+            incidentData = await System.Text.Json.JsonSerializer.DeserializeAsync<IncidentSummary>(
+                req.Body, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize incident summary JSON.");
+            return new BadRequestObjectResult("Invalid JSON format.");
+        }
+
+        if (incidentData == null)
+        {
+            return new BadRequestObjectResult("Incident summary data is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(incidentData.IncidentId))
+        {
+            return new BadRequestObjectResult("Incident ID is required.");
+        }
+
+        try
+        {
+            // Create risk acknowledgment response in the specified format
+            var riskAcknowledgment = new
+            {
+                incident_id = incidentData.IncidentId,
+                detected_at = incidentData.DetectedAt,
+                sector = incidentData.Sector,
+                subsector = incidentData.Subsector,
+                component = new
+                {
+                    name = incidentData.Component.Name,
+                    units_per_vehicle = incidentData.Component.UnitsPerVehicle,
+                    taxonomy = incidentData.Component.Taxonomy
+                },
+                lead_time_slip_weeks = incidentData.LeadTimeSlipWeeks,
+                lead_time_slip_tolerance_weeks = incidentData.LeadTimeSlipToleranceWeeks,
+                region = incidentData.Region,
+                root_cause_hypothesis = incidentData.RootCauseHypothesis,
+                urgency = incidentData.Urgency,
+                horizon_weeks = incidentData.HorizonWeeks,
+                impact_tier = incidentData.ImpactTier,
+                oem_Production_BatchWeek = incidentData.OemProductionBatchWeek,
+                impact_Material_Category = incidentData.ImpactMaterialCategory,
+                impact_Plant = incidentData.ImpactPlant,
+                free_text = incidentData.FreeText
+            };
+
+            // Log the acknowledgment for audit trail
+            _logger.LogInformation($"Risk acknowledged for incident {incidentData.IncidentId}: {System.Text.Json.JsonSerializer.Serialize(riskAcknowledgment)}");
+
+            // Store the risk acknowledgment in the database (could be extended to store in Cosmos DB)
+            await StoreRiskAcknowledgmentAsync(incidentData.IncidentId, riskAcknowledgment);
+
+            return new OkObjectResult(riskAcknowledgment);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error processing risk acknowledgment for incident {incidentData.IncidentId}.");
+            return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    private async Task StoreRiskAcknowledgmentAsync(string incidentId, object acknowledgment)
+    {
+        try
+        {
+            // Serialize the acknowledgment data for logging
+            var acknowledgmentJson = System.Text.Json.JsonSerializer.Serialize(acknowledgment, new System.Text.Json.JsonSerializerOptions 
+            { 
+                WriteIndented = true 
+            });
+            
+            _logger.LogInformation($"Risk acknowledgment stored for incident {incidentId}: {acknowledgmentJson}");
+            
+            // Store the risk acknowledgment in Cosmos DB
+            await _cosmosDbService.StoreRiskAcknowledgmentAsync(incidentId, acknowledgment);
+            
+            _logger.LogInformation($"Successfully stored risk acknowledgment in Cosmos DB for incident {incidentId}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to store risk acknowledgment for incident {incidentId}");
             throw;
         }
     }
@@ -1594,7 +1855,10 @@ string impactedNode)
             <- [r2:HAS_COMPONENT]- (bsi:BomSubItem)
             <- [r3:HAS_SUBASSEMBLY]-(bi:BomItem)
             <- [r4:HAS_ASSEMBLY]-(mb:MaterialBOM)
-            RETURN crm, c, bsi, bi, mb, r1, r2, r3, r4
+            <- [r5: PRD_HAS_MATERIAL_BOM]-(pr:Product)
+            - [r6:PRD_IN_PRODUCTPLANT]->(pp:ProductPlant)
+            <- [r7:HAS_PRODUCTPLANT]-(p:Plant)
+            RETURN crm, c, bsi, bi, mb ,p, r1, r2, r3,r4, r7
             ";
 
         var parameters = new Dictionary<string, object>
@@ -1633,6 +1897,18 @@ string impactedNode)
                 .Distinct()
                 .Count();
 
+            var uniquePlants = records
+                .Select(r => r["p"].As<INode>().ElementId)
+                .Distinct()
+                .Count();
+
+            var plantNames = records
+                .Select(r => r["p"].As<INode>())
+                .Where(node => node.Properties.ContainsKey("Plant"))
+                .Select(node => node.Properties["Plant"].As<string>())
+                .Distinct()
+                .ToList();
+
             return new ImpactedNodeCount
             {
                 ComponentRawMaterialCount = uniqueComponentRawMaterials,
@@ -1640,6 +1916,8 @@ string impactedNode)
                 BomSubItemCount = uniqueBomSubItems,
                 BomItemCount = uniqueBomItems,
                 MaterialBOMCount = uniqueMaterialBOMs,
+                PlantCount = uniquePlants,
+                PlantNames = plantNames,
                 RawMaterialName = impactedNode
             };
         }
@@ -1656,43 +1934,43 @@ string impactedNode)
 
     private async Task<bool> CreateSubtierSupplierGraphNodeAsync(SubtierSupplierDTO subtierSupplier)
     {
-        if (subtierSupplier?.PartNumbers == null || subtierSupplier.PartNumbers.Count == 0)
+        if (subtierSupplier?.SupplierParts == null || subtierSupplier.SupplierParts.Count == 0)
         {
-            _logger.LogWarning("No part numbers provided for supplier {SupplierId}.", subtierSupplier?.SupplierId);
+            _logger.LogWarning("No supplier parts provided for supplier {SupplierId}.", subtierSupplier?.SupplierId);
             return false;
         }
 
         _logger.LogInformation("Creating Neo4j graph nodes for supplier {SupplierId} with {PartCount} parts",
-            subtierSupplier.SupplierId, subtierSupplier.PartNumbers.Count);
+            subtierSupplier.SupplierId, subtierSupplier.SupplierParts.Count);
 
         // Build supplierPart -> oemPart map from Azure Table "OemSupplierMapping"
         var oemMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var spn in subtierSupplier.PartNumbers)
+        foreach (var supplierPart in subtierSupplier.SupplierParts)
         {
             try
             {
-                string filter = $"SupplierPartNumber eq '{spn}'";
+                string filter = $"SupplierPartNumber eq '{supplierPart.SupplierPartNumber}'";
                 var mappings = await _tableService.QueryEntitiesAsync<OemSupplierMapping>("OemSupplierMapping", filter);
 
                 foreach (var mapping in mappings)
                 {
                     if (!string.IsNullOrWhiteSpace(mapping.OemPartNumber))
                     {
-                        oemMap[spn] = mapping.OemPartNumber;
-                        _logger.LogInformation("Found OEM mapping: {SupplierPart} -> {OemPart}", spn, mapping.OemPartNumber);
+                        oemMap[supplierPart.SupplierPartNumber] = mapping.OemPartNumber;
+                        _logger.LogInformation("Found OEM mapping: {SupplierPart} -> {OemPart}", supplierPart.SupplierPartNumber, mapping.OemPartNumber);
                         break;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Mapping lookup failed for SupplierPart {SupplierPartNumber}", spn);
+                _logger.LogWarning(ex, "Mapping lookup failed for SupplierPart {SupplierPartNumber}", supplierPart.SupplierPartNumber);
             }
         }
 
-        _logger.LogInformation("Found {MappingCount} OEM mappings out of {PartCount} parts", oemMap.Count, subtierSupplier.PartNumbers.Count);
+        _logger.LogInformation("Found {MappingCount} OEM mappings out of {PartCount} parts", oemMap.Count, subtierSupplier.SupplierParts.Count);
 
-        // Cypher query to create supplier and parts
+        // Cypher query to create supplier and parts with enhanced part information
         var cypher = @"
     MERGE (s:SubtierSupplier { SupplierId: $supplierId })
     SET s.SupplierName = $supplierName,
@@ -1702,19 +1980,20 @@ string impactedNode)
         s.UpdatedAt = datetime()
     
     WITH s
-    UNWIND $partNumbers AS partNumber
-    MERGE (sp:SupplierPart { PartNumber: partNumber })
+    UNWIND $supplierParts AS supplierPartData
+    MERGE (sp:SupplierPart { PartNumber: supplierPartData.SupplierPartNumber, PartName: supplierPartData.SupplierPartName })
     SET sp.CreatedAt = CASE WHEN sp.CreatedAt IS NULL THEN datetime() ELSE sp.CreatedAt END,
         sp.UpdatedAt = datetime()
     
-    WITH s, sp, partNumber
+    WITH s, sp, supplierPartData
     MERGE (s)-[r:SUPPLIES]->(sp)
     SET r.CreatedAt = datetime()
     
-    WITH s, collect(sp) as supplierParts, collect(partNumber) as partNumbers
+    WITH s, collect(sp) as supplierParts, collect(supplierPartData.SupplierPartNumber) as partNumbers, collect(supplierPartData.SupplierPartName) as partNames
     RETURN s.SupplierId as supplierId, 
            SIZE(supplierParts) as partsCreated,
-           partNumbers as createdPartNumbers
+           partNumbers as createdPartNumbers,
+           partNames as createdPartNames
     ";
 
         var parameters = new Dictionary<string, object>
@@ -1722,8 +2001,12 @@ string impactedNode)
         { "supplierId", subtierSupplier.SupplierId },
         { "supplierName", subtierSupplier.SupplierName },
         { "leadTimeInDays", subtierSupplier.LeadTimeInDays ?? 0 },
-        { "partNumbers", subtierSupplier.PartNumbers },
-        { "supplierTier", subtierSupplier.Tier }
+        { "supplierParts", subtierSupplier.SupplierParts.Select(p => new Dictionary<string, object>
+            {
+                { "SupplierPartNumber", p.SupplierPartNumber ?? string.Empty },
+                { "SupplierPartName", p.SupplierPartName ?? string.Empty }
+            }).ToList() },
+        { "supplierTier", subtierSupplier.Tier ?? string.Empty }
     };
 
         string? neo4jUri = Environment.GetEnvironmentVariable("NEO4J_URI");
@@ -1752,8 +2035,13 @@ string impactedNode)
                     var record = records.First();
                     var partsCreated = record["partsCreated"].As<int>();
                     var createdPartNumbers = record["createdPartNumbers"].As<List<object>>().Select(x => x.ToString()).ToList();
-                    _logger.LogInformation("Successfully created supplier {SupplierId} with {PartsCreated} parts in Neo4j: [{PartNumbers}]",
-                        subtierSupplier.SupplierId, partsCreated, string.Join(", ", createdPartNumbers));
+                    var createdPartNames = record["createdPartNames"].As<List<object>>().Select(x => x.ToString()).ToList();
+                    
+                    // Create combined part info for logging
+                    var partDetails = createdPartNumbers.Zip(createdPartNames, (number, name) => $"{number}:{name}").ToList();
+                    
+                    _logger.LogInformation("Successfully created supplier {SupplierId} with {PartsCreated} parts in Neo4j: [{PartDetails}]",
+                        subtierSupplier.SupplierId, partsCreated, string.Join(", ", partDetails));
                 }
 
                 // Connect to existing nodes instead of creating OEMPart nodes
@@ -2565,6 +2853,8 @@ string impactedNode)
                         bomSubItemCount = item.BomSubItemCount != null ? (int?)item.BomSubItemCount : 0,
                         bomItemCount = item.BomItemCount != null ? (int?)item.BomItemCount : 0,
                         materialBOMCount = item.MaterialBOMCount != null ? (int?)item.MaterialBOMCount : 0,
+                        plantCount = item.PlantCount != null ? (int?)item.PlantCount : 0,
+                        plantNames = item.PlantNames != null ? item.PlantNames : new List<string>(),
                         rawMaterialName = ((item.SupplierPart != null && item.SupplierPart.SupplierPartName != null) ? ((string)item.SupplierPart.SupplierPartName).Replace(" ", "-").ToLowerInvariant() : null)
                     });
                 }
